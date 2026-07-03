@@ -1,26 +1,64 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+@theme {
+  --color-paper: #F7F6F2;
+  --color-sidebar: #F4F0EA;
+  --color-surface: #FFFFFF;
+  --color-border: #E7E4DC;
+  
+  --color-text-primary: #14171C;
+  --color-text-secondary: #6B6F76;
+
+  --color-focus: #6D5BF0;
+  --color-signal: #3DDC84;
+  --color-warning: #F5A623;
+  --color-alert: #E2533D;
+
+  --color-lavender-bg: #EDE9FE;
+  --color-lavender-text: #6D5BF0;
+  --color-mint-bg: #DCFCE7;
+  --color-mint-text: #16A34A;
+  --color-peach-bg: #FFE8D6;
+  --color-peach-text: #C2571B;
+  --color-sky-bg: #DBEAFE;
+  --color-sky-text: #2563EB;
+  --color-rose-bg: #FCE7F3;
+  --color-rose-text: #DB2777;
+  --color-butter-bg: #FEF9C3;
+  --color-butter-text: #A16207;
+  --color-rest-bg: #EDEDED;
+  --color-rest-text: #6B6F76;
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  --font-mono: var(--font-jetbrains-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@layer base {
+  .dark {
+    --color-paper: #0a0a0b;
+    --color-sidebar: #1C1F26;
+    --color-surface: #14171C;
+    --color-border: #2A2D35;
+    
+    --color-text-primary: #EDEDED;
+    --color-text-secondary: #A0A4AB;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@layer base {
+  body {
+    background-color: var(--color-paper);
+    color: var(--color-text-primary);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }
