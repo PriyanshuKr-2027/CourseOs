@@ -294,6 +294,8 @@ function GlobalCallOverlay({ videoClient }: { videoClient: StreamVideoClient }) 
                     </p>
                   </div>
                 )}
+              </div>
+              <div className="mt-4 flex justify-center">
                 <CallControls onLeave={handleLeave} />
               </div>
             </div>
@@ -716,7 +718,7 @@ function SocialWorkspaceContent({
   }
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6 pb-20 relative h-[calc(100vh-8rem)]">
+    <div className="max-w-6xl mx-auto space-y-6 pb-6 relative">
       {/* Top Banner & Profile Info */}
       <section className="bg-surface border border-border p-4 rounded-2xl shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="space-y-1">
@@ -743,7 +745,7 @@ function SocialWorkspaceContent({
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 h-full items-stretch">
         
         {/* Left Column: Lists */}
-        <div className="lg:col-span-4 bg-surface border border-border rounded-2xl flex flex-col overflow-hidden shadow-sm h-[600px]">
+        <div className="lg:col-span-4 bg-surface border border-border rounded-2xl flex flex-col overflow-hidden shadow-sm" style={{height: 'calc(100vh - 14rem)', minHeight: '400px'}}>
           {/* Navigation Tabs */}
           <div className="grid grid-cols-3 border-b border-border bg-gray-50/50 p-1.5 gap-1 text-center">
             <button
@@ -879,7 +881,7 @@ function SocialWorkspaceContent({
                         <div className="text-left">
                           <p className="text-xs font-bold text-text-primary">{group.name}</p>
                           <p className="text-[10px] text-text-secondary font-mono truncate max-w-[140px]">
-                            {group.members.length} members
+                            {group.members.filter((id: string) => id !== "admin").length} members
                           </p>
                         </div>
                       </div>
@@ -1012,7 +1014,7 @@ function SocialWorkspaceContent({
         </div>
 
         {/* Right Column: Chat/Call Workspace */}
-        <div className="lg:col-span-8 bg-surface border border-border rounded-2xl flex flex-col overflow-hidden shadow-sm h-[600px] relative">
+        <div className="lg:col-span-8 bg-surface border border-border rounded-2xl flex flex-col overflow-hidden shadow-sm relative" style={{height: 'calc(100vh - 14rem)', minHeight: '400px'}}>
           
           {(activeFriend || activeGroup) ? (
             <div className="flex flex-col h-full relative">

@@ -61,6 +61,13 @@ export default function DashboardPage() {
 
   const profileName = profile?.name ? profile.name.split(" ")[0] : "Learner";
 
+  const getGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return "Good morning";
+    if (hour < 17) return "Good afternoon";
+    return "Good evening";
+  };
+
   // 1. Total Completed Days
   const completedDaysCount = days.filter((d: Day) => getDayIsCompleted(d.id)).length;
 
@@ -109,7 +116,7 @@ export default function DashboardPage() {
       {/* Hero Greeting */}
       <section className="bg-[#FAF7F0] border border-border text-[#1B1917] rounded-2xl p-8 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div className="space-y-2">
-          <h1 className="text-3xl font-bold tracking-tight">Good morning, {profileName} 🔥</h1>
+          <h1 className="text-3xl font-bold tracking-tight">{getGreeting()}, {profileName} 🔥</h1>
           <p className="text-[#6B655B] font-medium">
             Day {currentDayId} of 92 · {streak}-day streak. {completedDaysCount === 92 ? "Incredible work! You have completed the curriculum!" : "You're doing great."}
           </p>

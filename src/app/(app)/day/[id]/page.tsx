@@ -56,6 +56,7 @@ export default function DayDetailPage({ params }: { params: Promise<{ id: string
 
   const [notesText, setNotesText] = React.useState("");
   const [activeProblemIndex, setActiveProblemIndex] = React.useState<number>(0);
+  const [lastSaved, setLastSaved] = React.useState<Date | null>(null);
   const day = days.find((d: Day) => d.id === dayId);
 
   const [prevDayId, setPrevDayId] = React.useState<number | null>(null);
@@ -164,6 +165,15 @@ export default function DayDetailPage({ params }: { params: Promise<{ id: string
   const handleNotesChange = (text: string) => {
     setNotesText(text);
     providerSaveDayNotes(dayId, text);
+    setLastSaved(new Date());
+  };
+
+  const getRelativeTime = (date: Date | null) => {
+    if (!date) return null;
+    const diff = Math.floor((Date.now() - date.getTime()) / 1000);
+    if (diff < 5) return "just now";
+    if (diff < 60) return `${diff}s ago`;
+    return `${Math.floor(diff / 60)}m ago`;
   };
 
   const handleSendMessage = async (textToSend?: string) => {
@@ -443,7 +453,9 @@ export default function DayDetailPage({ params }: { params: Promise<{ id: string
           <section className="bg-surface border border-border rounded-2xl p-6 shadow-sm space-y-4">
             <div className="flex items-center justify-between">
               <h2 className="font-bold text-lg">Personal Notes</h2>
-              <span className="text-xs text-text-secondary">Autosaved · Just now</span>
+              <span className="text-xs text-text-secondary">
+                {lastSaved ? `Autosaved · ${getRelativeTime(lastSaved)}` : "Autosaved"}
+              </span>
             </div>
             <textarea
               value={notesText}
@@ -460,7 +472,7 @@ export default function DayDetailPage({ params }: { params: Promise<{ id: string
         </div>
 
         {/* Right Column (AI Panel) */}
-        <div className="lg:col-span-5 bg-surface border border-border rounded-2xl flex flex-col h-[650px] shadow-sm overflow-hidden sticky top-24">
+        <div className="lg:col-span-5 bg-surface border border-border rounded-2xl flex flex-col shadow-sm overflow-hidden sticky top-24" style={{height: 'calc(100vh - 8rem)', minHeight: '500px'}}>
           <div className="p-4 border-b border-border flex items-center justify-between bg-gray-50/50 relative">
             <div className="flex items-center gap-2">
               <Sparkle weight="fill" className="text-focus w-5 h-5" />

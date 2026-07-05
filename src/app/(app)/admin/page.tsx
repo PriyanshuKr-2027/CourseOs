@@ -388,11 +388,13 @@ export default function AdminPage() {
                 <tbody className="divide-y divide-border text-sm">
                   {filteredUsers.map((user) => (
                     <tr key={user.id} className="hover:bg-paper/20 transition-all">
-                      <td className="px-6 py-4 flex items-center gap-3">
-                        <img src={user.avatarUrl} alt="" className="w-9 h-9 rounded-full bg-paper p-0.5 border border-border" />
-                        <div>
-                          <p className="font-bold text-text-primary">{user.name}</p>
-                          <p className="text-xs text-text-secondary font-mono">{user.email}</p>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-3">
+                          <img src={user.avatarUrl} alt="" className="w-9 h-9 rounded-full bg-paper p-0.5 border border-border" />
+                          <div>
+                            <p className="font-bold text-text-primary">{user.name}</p>
+                            <p className="text-xs text-text-secondary font-mono">{user.email}</p>
+                          </div>
                         </div>
                       </td>
                       <td className="px-6 py-4">
@@ -436,7 +438,7 @@ export default function AdminPage() {
 
       {/* TAB 2: REAL-TIME CHAT MONITOR */}
       {activeTab === "chats" && (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 h-[600px] items-stretch">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch" style={{height: 'calc(100vh - 14rem)', minHeight: '400px'}}>
           {/* Chat List (Left) */}
           <div className="lg:col-span-4 bg-surface border border-border rounded-2xl flex flex-col overflow-hidden shadow-sm h-full">
             <div className="p-4 border-b border-border bg-gray-50/50">

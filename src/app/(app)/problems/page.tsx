@@ -612,7 +612,7 @@ function ProblemsPageContent() {
             </div>
 
             {/* List */}
-            <div className="space-y-4">
+            <div className="space-y-4 overflow-y-auto" style={{maxHeight: 'calc(100vh - 22rem)'}}>
               {filteredTopics.map((topic) => (
                 <div key={topic.id} id={`topic-${topic.id}`} className="space-y-2.5 scroll-mt-20">
                   <div className="border-b border-border pb-1.5 flex items-center justify-between">
@@ -819,7 +819,7 @@ function ProblemsPageContent() {
 
         {/* Floating AI Chatbox */}
         {isChatOpen && (
-          <div className="fixed bottom-24 right-6 w-96 h-[500px] z-50 bg-surface border border-border rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in slide-in-from-bottom duration-300">
+          <div className="fixed right-6 w-96 z-50 bg-surface border border-border rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in slide-in-from-bottom duration-300" style={{bottom: '5rem', maxHeight: 'calc(100vh - 8rem)'}}>
             {/* Chat Header */}
             <div className="p-4 border-b border-border flex items-center justify-between bg-gray-50/50 dark:bg-white/[0.01] relative">
               <div className="flex items-center gap-2">
@@ -942,7 +942,7 @@ function ProblemsPageContent() {
 
         {/* Notes Editor Modal */}
         {isNotesModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-200">
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-200">
             <div className="bg-surface border border-border w-full max-w-lg rounded-2xl shadow-2xl flex flex-col max-h-[90vh] overflow-hidden animate-in zoom-in-95 duration-200">
               {/* Header */}
               <div className="px-6 py-4 border-b border-border flex items-center justify-between">
@@ -996,7 +996,7 @@ function ProblemsPageContent() {
   // LAYOUT 2: FULL-WIDTH PROBLEMS LIST MODE (Default view)
   // ----------------------------------------------------
   return (
-    <div className="max-w-6xl mx-auto space-y-8 pb-20">
+    <div className="max-w-6xl mx-auto space-y-8 pb-24">
       {/* Page Title Header */}
       <div className="space-y-2">
         <h1 className="text-3xl font-bold tracking-tight font-sans text-text-primary">Pattern Wise Sheet</h1>

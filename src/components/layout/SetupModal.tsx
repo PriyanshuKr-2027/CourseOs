@@ -129,7 +129,7 @@ function SetupModalContent({ profile, updateProfile, user }: { profile: any; upd
         </div>
 
         {/* Form Area */}
-        <div className="p-6 overflow-y-auto max-h-[500px]">
+        <div className="p-6 overflow-y-auto" style={{maxHeight: 'calc(100vh - 12rem)'}}>
           {error && (
             <div className="mb-4 text-xs text-alert bg-alert/5 p-3.5 rounded-xl border border-alert/20 font-semibold flex items-start gap-2.5">
               <Warning className="w-4 h-4 shrink-0 mt-0.5" />
