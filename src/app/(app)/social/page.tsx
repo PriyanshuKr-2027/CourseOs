@@ -32,7 +32,8 @@ import {
   StreamCall,
   CallControls,
   SpeakerLayout,
-  useCalls
+  useCalls,
+  StreamTheme
 } from "@stream-io/video-react-sdk";
 
 // Import styles (these will be loaded in Next.js)
@@ -177,11 +178,114 @@ export default function SocialPage() {
     return (
       <StreamVideo client={videoClient}>
         <SocialWorkspaceContent {...workspaceProps} />
+        <GlobalCallOverlay videoClient={videoClient} />
       </StreamVideo>
     );
   }
 
   return <SocialWorkspaceContent {...workspaceProps} />;
+}
+
+function GlobalCallOverlay({ videoClient }: { videoClient: StreamVideoClient }) {
+  const calls = useCalls();
+  const activeCall = calls.find(
+    (c) => c.state.callingState === "ringing" || c.state.callingState === "joined"
+  );
+
+  if (!activeCall) return null;
+
+  const isRinging = activeCall.state.callingState === "ringing";
+  const isIncoming = isRinging && !activeCall.isCreatedByMe;
+
+  const handleDecline = async () => {
+    try {
+      await activeCall.leave({ reject: true });
+    } catch (e) {
+      console.error("Error declining call:", e);
+    }
+  };
+
+  const handleAccept = async () => {
+    try {
+      await activeCall.join();
+    } catch (e) {
+      console.error("Error accepting call:", e);
+    }
+  };
+
+  const handleLeave = async () => {
+    try {
+      const state = activeCall.state.callingState;
+      if (state !== "left") {
+        await activeCall.leave();
+      }
+    } catch (e) {
+      console.warn("Error leaving call:", e);
+    }
+  };
+
+  // Get caller information
+  const callerName = activeCall.state.createdBy?.name || activeCall.state.createdBy?.id || "Someone";
+  const callerImage = activeCall.state.createdBy?.image || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(callerName)}`;
+
+  return (
+    <div className="fixed inset-0 bg-[#0d0f14] z-50 flex flex-col text-white animate-in fade-in duration-300">
+      <StreamTheme>
+        {isIncoming ? (
+          /* Incoming Call Screen */
+          <div className="flex-1 flex flex-col items-center justify-center p-6 space-y-6 bg-slate-900/90 h-full">
+            <div className="relative">
+              <img
+                src={callerImage}
+                alt=""
+                className="w-20 h-20 rounded-full border-4 border-focus bg-slate-800 p-1"
+              />
+              <span className="absolute bottom-1 right-1 flex h-4 w-4">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-signal opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-4 w-4 bg-signal"></span>
+              </span>
+            </div>
+            
+            <div className="space-y-1 text-center">
+              <h3 className="font-bold text-base">{callerName}</h3>
+              <p className="text-xs text-slate-400">Incoming Video Call...</p>
+            </div>
+
+            <div className="flex gap-4 w-full max-w-xs pt-2">
+              <button
+                onClick={handleDecline}
+                className="flex-1 py-3 bg-alert hover:bg-alert/90 text-white rounded-xl text-xs font-bold transition-all cursor-pointer shadow-sm uppercase tracking-wider"
+              >
+                Decline
+              </button>
+              <button
+                onClick={handleAccept}
+                className="flex-1 py-3 bg-signal hover:bg-signal/90 text-white rounded-xl text-xs font-bold transition-all cursor-pointer shadow-sm uppercase tracking-wider"
+              >
+                Accept
+              </button>
+            </div>
+          </div>
+        ) : (
+          /* Active Call full-screen window */
+          <StreamCall call={activeCall}>
+            <div className="flex-1 flex flex-col justify-between p-4 h-full">
+              <h4 className="text-center text-sm font-bold mt-2">
+                {isRinging
+                  ? `Calling...`
+                  : `Active Call`
+                }
+              </h4>
+              <div className="flex-grow flex flex-col items-center justify-center relative bg-gray-950 rounded-2xl overflow-hidden min-h-[400px] mt-4">
+                <SpeakerLayout />
+                <CallControls onLeave={handleLeave} />
+              </div>
+            </div>
+          </StreamCall>
+        )}
+      </StreamTheme>
+    </div>
+  );
 }
 
 function SocialWorkspaceContent({
@@ -210,31 +314,8 @@ function SocialWorkspaceContent({
   // Stream Client states
   const [streamChannel, setStreamChannel] = useState<any>(null);
   
-  // Call States
-  const [activeCall, setActiveCall] = useState<any | null>(null);
-  const [isCalling, setIsCalling] = useState(false);
-
   // Online status presence mapping
   const [onlineUsers, setOnlineUsers] = useState<Record<string, boolean>>({});
-
-  const calls = useCalls();
-
-  // Monitor calls list for incoming ringing calls or active joined calls
-  useEffect(() => {
-    if (!videoClient) return;
-
-    const activeCallInstance = calls.find(
-      (c) => c.state.callingState === "ringing" || c.state.callingState === "joined"
-    );
-
-    if (activeCallInstance) {
-      setActiveCall(activeCallInstance);
-      setIsCalling(true);
-    } else {
-      setActiveCall(null);
-      setIsCalling(false);
-    }
-  }, [calls, videoClient]);
 
   // Fetch social data from Supabase
   const loadSocialData = async () => {
@@ -568,8 +649,7 @@ function SocialWorkspaceContent({
 
   // Video Call Handlers
   const startCall = async () => {
-    if (!user || (!activeFriend && !activeGroup)) return;
-    setIsCalling(true);
+    if (!user || !videoClient || (!activeFriend && !activeGroup)) return;
     try {
       // Generate a new, unique UUID for this specific call attempt (required for ringing calls)
       const callId = crypto.randomUUID();
@@ -595,27 +675,9 @@ function SocialWorkspaceContent({
       });
       
       await callInstance.join();
-      setActiveCall(callInstance);
     } catch (e) {
       console.error("Failed to start Stream call:", e);
-      setIsCalling(false);
     }
-  };
-
-  const endCall = async () => {
-    if (activeCall) {
-      try {
-        const state = activeCall.state.callingState;
-        // Only call leave() if the call hasn't already terminated
-        if (state !== "left" && state !== "disconnected") {
-          await activeCall.leave();
-        }
-      } catch (e) {
-        console.warn("Call already left or error leaving:", e);
-      }
-    }
-    setActiveCall(null);
-    setIsCalling(false);
   };
 
   const handleToggleMemberSelection = (friendId: string) => {
@@ -1005,78 +1067,6 @@ function SocialWorkspaceContent({
                   </div>
                 )}
               </div>
-
-              {/* Call Overlay overlay */}
-              {isCalling && activeCall && (
-                <div className="absolute inset-0 bg-[#0d0f14] z-40 flex flex-col text-white animate-in fade-in duration-300">
-                  
-                  {activeCall.state.callingState === "ringing" && !activeCall.isCreatedByMe ? (
-                    /* Incoming Call Screen */
-                    <div className="flex-1 flex flex-col items-center justify-center p-6 space-y-6 bg-slate-900/90">
-                      <div className="relative">
-                        <img
-                          src={activeCall.state.createdBy?.image || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(activeCall.state.createdBy?.id || "")}`}
-                          alt=""
-                          className="w-20 h-20 rounded-full border-4 border-focus bg-slate-800 p-1"
-                        />
-                        <span className="absolute bottom-1 right-1 flex h-4 w-4">
-                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-signal opacity-75"></span>
-                          <span className="relative inline-flex rounded-full h-4 w-4 bg-signal"></span>
-                        </span>
-                      </div>
-                      
-                      <div className="space-y-1 text-center">
-                        <h3 className="font-bold text-base">{activeCall.state.createdBy?.name || activeCall.state.createdBy?.id || "Someone"}</h3>
-                        <p className="text-xs text-slate-400">Incoming Video Call...</p>
-                      </div>
-
-                      <div className="flex gap-4 w-full max-w-xs pt-2">
-                        <button
-                          onClick={async () => {
-                            try {
-                              await activeCall.leave({ reject: true });
-                            } catch (e) {
-                              console.error("Error declining call:", e);
-                            }
-                          }}
-                          className="flex-1 py-3 bg-alert hover:bg-alert/90 text-white rounded-xl text-xs font-bold transition-all cursor-pointer shadow-sm uppercase tracking-wider"
-                        >
-                          Decline
-                        </button>
-                        <button
-                          onClick={async () => {
-                            try {
-                              await activeCall.join();
-                            } catch (e) {
-                              console.error("Error joining call:", e);
-                            }
-                          }}
-                          className="flex-1 py-3 bg-signal hover:bg-signal/90 text-white rounded-xl text-xs font-bold transition-all cursor-pointer shadow-sm uppercase tracking-wider"
-                        >
-                          Accept
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    /* Active call full-screen window */
-                    <StreamCall call={activeCall}>
-                      <div className="flex-1 flex flex-col justify-between p-4 h-full">
-                        <h4 className="text-center text-sm font-bold mt-2">
-                          {activeCall.state.callingState === "ringing"
-                            ? `Calling: ${activeFriend ? activeFriend.name : activeGroup.name}...`
-                            : `Active Call: ${activeFriend ? activeFriend.name : activeGroup.name}`
-                          }
-                        </h4>
-                        <div className="flex-grow flex flex-col items-center justify-center relative bg-gray-950 rounded-2xl overflow-hidden min-h-[400px]">
-                          <SpeakerLayout />
-                          <CallControls onLeave={endCall} />
-                        </div>
-                      </div>
-                    </StreamCall>
-                  )}
-
-                </div>
-              )}
 
             </div>
           ) : (

@@ -27,8 +27,7 @@ import { SetupModal } from "@/components/layout/SetupModal";
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/dashboard", icon: SquaresFour },
   { label: "Day Plan", href: "/plan", icon: CalendarBlank },
-  { label: "Pattern Sheet", href: "/patterns", icon: Table },
-  { label: "Problems", href: "/problems", icon: CodeBlock },
+  { label: "Pattern Sheet", href: "/problems", icon: Table },
   { label: "Social", href: "/social", icon: Users },
   { label: "Notes", href: "/notes", icon: Note },
 ];
