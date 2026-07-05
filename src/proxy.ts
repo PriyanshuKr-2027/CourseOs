@@ -1,0 +1,56 @@
+import { NextResponse, type NextRequest } from "next/server";
+import { updateSession } from "@/lib/supabase/middleware";
+
+export async function proxy(request: NextRequest) {
+  const { supabaseResponse, user, role } = await updateSession(request);
+  const pathname = request.nextUrl.pathname;
+
+  // Paths that require authentication
+  const isProtectedPath = 
+    pathname.startsWith("/dashboard") ||
+    pathname.startsWith("/day") ||
+    pathname.startsWith("/admin") ||
+    pathname.startsWith("/plan") ||
+    pathname.startsWith("/sheet") ||
+    pathname.startsWith("/problems") ||
+    pathname.startsWith("/social") ||
+    pathname.startsWith("/notes") ||
+    pathname.startsWith("/settings");
+
+  // Auth routing logic
+  if (!user && isProtectedPath) {
+    // Redirect unauthenticated user to login
+    const url = request.nextUrl.clone();
+    url.pathname = "/login";
+    return NextResponse.redirect(url);
+  }
+
+  if (user && pathname === "/login") {
+    // Redirect authenticated user away from login to dashboard
+    const url = request.nextUrl.clone();
+    url.pathname = "/dashboard";
+    return NextResponse.redirect(url);
+  }
+
+  if (user && pathname.startsWith("/admin") && role !== "admin") {
+    // Restrict /admin to admin role only
+    const url = request.nextUrl.clone();
+    url.pathname = "/dashboard";
+    return NextResponse.redirect(url);
+  }
+
+  return supabaseResponse;
+}
+
+export const config = {
+  matcher: [
+    /*
+     * Match all request paths except for:
+     * - _next/static (static files)
+     * - _next/image (image optimization files)
+     * - favicon.ico (favicon file)
+     * - API routes (we handle auth in API handlers where needed)
+     */
+    "/((?!_next/static|_next/image|favicon.ico|api/).*)",
+  ],
+};

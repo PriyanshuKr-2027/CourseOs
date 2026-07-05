@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
+import { getProfile, Profile } from "@/lib/store";
 import {
   SquaresFour,
   CalendarBlank,
@@ -14,19 +15,50 @@ import {
   MagnifyingGlass,
   Bell,
   CaretDown,
-  List
+  List,
+  Table,
+  Users,
+  Shield,
+  Database
 } from "@phosphor-icons/react";
+
+import { useSupabase } from "@/components/providers/SupabaseProvider";
 
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/dashboard", icon: SquaresFour },
   { label: "Day Plan", href: "/plan", icon: CalendarBlank },
+  { label: "Pattern Sheet", href: "/sheet", icon: Table },
   { label: "Problems", href: "/problems", icon: CodeBlock },
+  { label: "Social", href: "/social", icon: Users },
   { label: "Notes", href: "/notes", icon: Note },
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const { profile, signOut } = useSupabase();
+
+  const handleLogout = async () => {
+    await signOut();
+  };
+
+  // Compute initials from name
+  const getInitials = (fullName: string) => {
+    return fullName
+      .split(" ")
+      .map((n) => n[0])
+      .join("")
+      .toUpperCase()
+      .slice(0, 2) || "JD";
+  };
+
+  const navItems = [
+    ...NAV_ITEMS,
+    ...(profile.role === "admin" ? [
+      { label: "Admin Overview", href: "/admin", icon: Shield },
+      { label: "Admin Content", href: "/admin/days", icon: Database }
+    ] : [])
+  ];
 
   return (
     <div className="flex min-h-screen bg-paper w-full">
@@ -57,7 +89,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
         
         <nav className={cn("flex-1 py-6 space-y-1 overflow-visible transition-all duration-300", isCollapsed ? "px-2" : "px-4")}>
-          {NAV_ITEMS.map((item) => {
+          {navItems.map((item) => {
             const isActive = pathname === item.href || pathname?.startsWith(item.href + "/");
             return (
               <Link
@@ -103,6 +135,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             )}
           </Link>
           <button
+            onClick={handleLogout}
             className={cn(
               "w-full flex items-center rounded-lg text-sm text-[#6B655B] hover:text-[#1B1917] hover:bg-black/5 transition-all duration-300 group relative",
               isCollapsed ? "justify-center p-3" : "gap-3 px-3 py-2"
@@ -145,9 +178,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <div className="w-px h-6 bg-border"></div>
             <button className="flex items-center gap-2 hover:opacity-80 transition-opacity">
               <div className="w-8 h-8 rounded-full bg-gray-200 overflow-hidden flex items-center justify-center">
-                <span className="text-xs font-semibold text-gray-600">JD</span>
+                <span className="text-xs font-semibold text-gray-600">{getInitials(profile.name)}</span>
               </div>
-              <span className="text-sm font-medium">John Doe</span>
+              <span className="text-sm font-medium">{profile.name}</span>
               <CaretDown className="w-4 h-4 text-text-secondary" />
             </button>
           </div>

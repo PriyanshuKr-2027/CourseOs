@@ -2,24 +2,50 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { GoogleLogo, Envelope, Lock, ArrowRight } from "@phosphor-icons/react";
+import { GoogleLogo, Envelope, Lock, ArrowRight, User } from "@phosphor-icons/react";
+import { useSupabase } from "@/components/providers/SupabaseProvider";
 
 export default function LoginPage() {
   const router = useRouter();
+  const { signIn, signUp } = useSupabase();
   const [isSignUp, setIsSignUp] = useState(false);
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email || !password) {
+    if (!email || !password || (isSignUp && !name)) {
       setError("Please fill in all fields.");
       return;
     }
     
-    // Simulate successful login
-    router.push("/dashboard");
+    setLoading(true);
+    setError("");
+
+    try {
+      if (isSignUp) {
+        const { error: signUpError } = await signUp(email, password, name);
+        if (signUpError) {
+          setError(signUpError.message || "Sign up failed.");
+        } else {
+          router.push("/dashboard");
+        }
+      } else {
+        const { error: signInError } = await signIn(email, password);
+        if (signInError) {
+          setError(signInError.message || "Invalid login credentials.");
+        } else {
+          router.push("/dashboard");
+        }
+      }
+    } catch (err: any) {
+      setError(err.message || "An authentication error occurred.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -40,8 +66,19 @@ export default function LoginPage() {
 
         {/* OAuth */}
         <button
-          onClick={() => router.push("/dashboard")}
-          className="w-full flex items-center justify-center gap-3 px-4 py-2.5 bg-paper hover:bg-border border border-border rounded-xl text-sm font-semibold transition-all"
+          disabled={loading}
+          onClick={async () => {
+            setError("");
+            // Google auth simulation if mock, or actual OAuth
+            try {
+              const mockEmail = "learner@example.com";
+              const { error: oAuthError } = await signIn(mockEmail, "password");
+              if (oAuthError) setError(oAuthError.message);
+            } catch (err: any) {
+              setError(err.message);
+            }
+          }}
+          className="w-full flex items-center justify-center gap-3 px-4 py-2.5 bg-paper hover:bg-border border border-border rounded-xl text-sm font-semibold transition-all disabled:opacity-50"
         >
           <GoogleLogo className="w-5 h-5" />
           Continue with Google
@@ -61,6 +98,23 @@ export default function LoginPage() {
             </div>
           )}
 
+          {isSignUp && (
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Full Name</label>
+              <div className="relative">
+                <User className="absolute left-3.5 top-3 w-5 h-5 text-text-secondary" />
+                <input
+                  type="text"
+                  placeholder="John Doe"
+                  disabled={loading}
+                  value={name}
+                  onChange={(e) => { setName(e.target.value); setError(""); }}
+                  className="w-full pl-11 pr-4 py-2.5 rounded-xl bg-paper border border-border focus:outline-none focus:ring-2 focus:ring-focus/20 text-sm font-medium"
+                />
+              </div>
+            </div>
+          )}
+
           <div className="space-y-1.5">
             <label className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Email Address</label>
             <div className="relative">
@@ -68,6 +122,7 @@ export default function LoginPage() {
               <input
                 type="email"
                 placeholder="you@example.com"
+                disabled={loading}
                 value={email}
                 onChange={(e) => { setEmail(e.target.value); setError(""); }}
                 className="w-full pl-11 pr-4 py-2.5 rounded-xl bg-paper border border-border focus:outline-none focus:ring-2 focus:ring-focus/20 text-sm font-medium"
@@ -79,7 +134,7 @@ export default function LoginPage() {
             <div className="flex justify-between items-center">
               <label className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Password</label>
               {!isSignUp && (
-                <button type="button" className="text-xs text-focus hover:underline">
+                <button type="button" disabled={loading} className="text-xs text-focus hover:underline">
                   Forgot password?
                 </button>
               )}
@@ -89,6 +144,7 @@ export default function LoginPage() {
               <input
                 type="password"
                 placeholder="••••••••"
+                disabled={loading}
                 value={password}
                 onChange={(e) => { setPassword(e.target.value); setError(""); }}
                 className="w-full pl-11 pr-4 py-2.5 rounded-xl bg-paper border border-border focus:outline-none focus:ring-2 focus:ring-focus/20 text-sm font-medium"
@@ -98,10 +154,11 @@ export default function LoginPage() {
 
           <button
             type="submit"
-            className="w-full bg-focus text-white py-3 rounded-xl font-semibold shadow-sm hover:opacity-90 transition-opacity flex items-center justify-center gap-2 text-sm"
+            disabled={loading}
+            className="w-full bg-[#1B1917] text-white py-3 rounded-xl font-semibold shadow-sm hover:opacity-90 transition-opacity flex items-center justify-center gap-2 text-sm disabled:opacity-50 cursor-pointer"
           >
-            {isSignUp ? "Sign Up" : "Sign In"}
-            <ArrowRight weight="bold" />
+            {loading ? "Please wait..." : isSignUp ? "Sign Up" : "Sign In"}
+            {!loading && <ArrowRight weight="bold" />}
           </button>
         </form>
 
@@ -109,6 +166,7 @@ export default function LoginPage() {
         <div className="text-center">
           <button
             onClick={() => { setIsSignUp(!isSignUp); setError(""); }}
+            disabled={loading}
             className="text-xs text-text-secondary hover:text-focus transition-colors"
           >
             {isSignUp ? "Already have an account? Sign In" : "Don't have an account? Sign Up"}

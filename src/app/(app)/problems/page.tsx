@@ -1,18 +1,22 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
-import { MOCK_DAYS } from "@/data/mockDays";
 import { getPatternBadgeStyle, getDifficultyStyle } from "@/lib/badgeStyle";
 import { MagnifyingGlass, CheckCircle, Circle, ArrowUpRight } from "@phosphor-icons/react";
+import { getPlanProgress, savePlanProgress, registerActivity, getCurriculumDays } from "@/lib/store";
 
 interface FlattenedProblem {
   name: string;
-  difficulty: "Easy" | "Medium" | "Hard";
+  difficulty: string;
   leetcodeUrl: string;
+  youtubeUrl: string | null;
+  gfgUrl: string | null;
   done: boolean;
   dayId: number;
   pattern: string;
+  problemIndex: number;
+  isMissingVideo?: boolean;
 }
 
 export default function ProblemsPage() {
@@ -20,14 +24,38 @@ export default function ProblemsPage() {
   const [selectedPattern, setSelectedPattern] = useState("All");
   const [selectedDifficulty, setSelectedDifficulty] = useState("All");
   const [selectedStatus, setSelectedStatus] = useState("All");
+  const [planProgress, setPlanProgress] = useState<Record<string, boolean>>({});
+  const [days, setDays] = useState<any[]>([]);
 
-  const allProblems: FlattenedProblem[] = MOCK_DAYS.flatMap((day) =>
-    day.problems.map((p) => ({
-      ...p,
-      dayId: day.id,
-      pattern: day.pattern,
-    }))
-  );
+  useEffect(() => {
+    setDays(getCurriculumDays());
+    setPlanProgress(getPlanProgress());
+  }, []);
+
+  const allProblems = useMemo<FlattenedProblem[]>(() => {
+    return days.flatMap((day: any) =>
+      (day.problems || []).map((p: any, idx: number) => ({
+        ...p,
+        dayId: day.id,
+        pattern: day.pattern,
+        problemIndex: idx,
+        done: !!planProgress[`${day.id}_${idx}`],
+      }))
+    );
+  }, [days, planProgress]);
+
+  const toggleProblem = (dayId: number, problemIndex: number) => {
+    const progress = getPlanProgress();
+    const key = `${dayId}_${problemIndex}`;
+    const newDone = !progress[key];
+    progress[key] = newDone;
+    savePlanProgress(progress);
+    setPlanProgress(progress);
+    
+    if (newDone) {
+      registerActivity();
+    }
+  };
 
   const totalProblems = allProblems.length;
   const solvedProblems = allProblems.filter((p) => p.done).length;
@@ -121,11 +149,23 @@ export default function ProblemsPage() {
               {filteredProblems.map((prob, i) => (
                 <tr key={i} className="hover:bg-gray-50/50 transition-colors group">
                   <td className="px-6 py-4">
-                    <button className="text-text-secondary hover:text-signal transition-colors">
+                    <button 
+                      onClick={() => toggleProblem(prob.dayId, prob.problemIndex)}
+                      className="text-text-secondary hover:text-signal transition-colors focus:outline-none"
+                    >
                       {prob.done ? <CheckCircle weight="fill" className="w-6 h-6 text-signal" /> : <Circle className="w-6 h-6" />}
                     </button>
                   </td>
-                  <td className="px-6 py-4 font-mono text-sm">{prob.name}</td>
+                  <td className="px-6 py-4">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-mono text-sm font-semibold">{prob.name}</span>
+                      {prob.isMissingVideo && prob.leetcodeUrl && (
+                        <span className="text-[9px] font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200 uppercase tracking-wider">
+                          Videos coming soon
+                        </span>
+                      )}
+                    </div>
+                  </td>
                   <td className="px-6 py-4">
                     <Link href={`/day/${prob.dayId}`} className="text-focus hover:underline font-semibold text-sm">
                       Day {prob.dayId}
@@ -142,9 +182,30 @@ export default function ProblemsPage() {
                     </span>
                   </td>
                   <td className="px-6 py-4 text-right">
-                    <a href={prob.leetcodeUrl} target="_blank" rel="noopener noreferrer" className="inline-flex text-gray-400 hover:text-focus transition-colors">
-                      <ArrowUpRight className="w-5 h-5" />
-                    </a>
+                    <div className="flex items-center justify-end gap-2">
+                      {prob.gfgUrl && (
+                        <a
+                          href={prob.gfgUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-2 py-1 text-[11px] bg-[#E8F5E9] hover:bg-[#C8E6C9] text-[#2E7D32] border border-[#A5D6A7] rounded font-semibold transition-colors"
+                          title="GFG Practice Link"
+                        >
+                          GFG
+                        </a>
+                      )}
+                      {prob.leetcodeUrl ? (
+                        <a
+                          href={prob.leetcodeUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="p-2 hover:bg-paper rounded-lg text-text-secondary hover:text-focus transition-colors inline-flex"
+                          title="LeetCode Link"
+                        >
+                          <ArrowUpRight className="w-5 h-5" />
+                        </a>
+                      ) : null}
+                    </div>
                   </td>
                 </tr>
               ))}

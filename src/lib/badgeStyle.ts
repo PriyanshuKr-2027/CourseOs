@@ -19,7 +19,7 @@ export function getPatternBadgeStyle(pattern: string): string {
   return styles[index];
 }
 
-export function getDifficultyStyle(diff: "Easy" | "Medium" | "Hard"): string {
+export function getDifficultyStyle(diff: string): string {
   switch (diff) {
     case "Easy":
       return "text-signal bg-signal/10 border border-signal/20";
@@ -27,5 +27,7 @@ export function getDifficultyStyle(diff: "Easy" | "Medium" | "Hard"): string {
       return "text-warning bg-warning/10 border border-warning/20";
     case "Hard":
       return "text-alert bg-alert/10 border border-alert/20";
+    default:
+      return "text-text-secondary bg-paper border border-border/50";
   }
 }

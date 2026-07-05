@@ -1,26 +1,43 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
-import { MOCK_DAYS } from "@/data/mockDays";
 import { getPatternBadgeStyle } from "@/lib/badgeStyle";
 import { MagnifyingGlass, CheckCircle, Circle, PlayCircle } from "@phosphor-icons/react";
+import { getPlanProgress, getDayManualDone, getCurriculumDays } from "@/lib/store";
 
 export default function PlanPage() {
   const [search, setSearch] = useState("");
   const [selectedPattern, setSelectedPattern] = useState("All");
   const [selectedStatus, setSelectedStatus] = useState("All");
+  const [planProgress, setPlanProgress] = useState<Record<string, boolean>>({});
+  const [dayManualDone, setDayManualDone] = useState<Record<number, boolean>>({});
+  const [days, setDays] = useState<any[]>([]);
 
-  const patterns = ["All", ...Array.from(new Set(MOCK_DAYS.map((d) => d.pattern)))];
+  useEffect(() => {
+    setDays(getCurriculumDays());
+    setPlanProgress(getPlanProgress());
+    setDayManualDone(getDayManualDone());
+  }, []);
 
-  const filteredDays = MOCK_DAYS.filter((day) => {
+  const patterns = ["All", ...Array.from(new Set(days.map((d) => d.pattern)))];
+
+  const getDayProgress = (day: any) => {
+    const total = day.problems?.length || 0;
+    if (total === 0) {
+      return dayManualDone[day.id] ? 100 : 0;
+    }
+    const solved = day.problems.filter((_: any, idx: number) => !!planProgress[`${day.id}_${idx}`]).length;
+    return Math.round((solved / total) * 100);
+  };
+
+  const filteredDays = days.filter((day) => {
     const matchesSearch = day.topic.toLowerCase().includes(search.toLowerCase()) || 
-      day.problems.some((p) => p.name.toLowerCase().includes(search.toLowerCase())) ||
+      day.problems.some((p: any) => p.name.toLowerCase().includes(search.toLowerCase())) ||
       `day ${day.id}`.includes(search.toLowerCase());
     const matchesPattern = selectedPattern === "All" || day.pattern === selectedPattern;
     
-    const dayProgress = day.problems.length === 0 ? (day.done ? 100 : 0) : 
-      Math.round((day.problems.filter((p) => p.done).length / day.problems.length) * 100);
+    const dayProgress = getDayProgress(day);
     
     const matchesStatus = selectedStatus === "All" ||
       (selectedStatus === "Completed" && dayProgress === 100) ||
@@ -48,10 +65,8 @@ export default function PlanPage() {
         </div>
         
         <div className="grid grid-cols-10 sm:grid-cols-20 md:grid-cols-23 gap-2">
-          {MOCK_DAYS.map((day) => {
-            const solved = day.problems.filter((p) => p.done).length;
-            const total = day.problems.length;
-            const percentage = total === 0 ? (day.done ? 100 : 0) : Math.round((solved / total) * 100);
+          {days.map((day) => {
+            const percentage = getDayProgress(day);
             
             let color = "bg-gray-100 dark:bg-sidebar hover:bg-gray-200 dark:hover:bg-sidebar/80";
             if (percentage === 100) color = "bg-signal hover:opacity-80";
@@ -124,10 +139,10 @@ export default function PlanPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {filteredDays.map((day) => {
-                const solved = day.problems.filter((p) => p.done).length;
-                const total = day.problems.length;
-                const percentage = total === 0 ? (day.done ? 100 : 0) : Math.round((solved / total) * 100);
+              {filteredDays.map((day: any) => {
+                const total = day.problems?.length || 0;
+                const solved = day.problems ? day.problems.filter((_: any, idx: number) => !!planProgress[`${day.id}_${idx}`]).length : 0;
+                const percentage = getDayProgress(day);
 
                 return (
                   <tr key={day.id} className="hover:bg-gray-50/50 transition-colors group">
@@ -136,7 +151,7 @@ export default function PlanPage() {
                       <div className="font-semibold text-sm">{day.topic}</div>
                       {day.problems.length > 0 && (
                         <div className="text-xs text-text-secondary mt-1">
-                          {day.problems.map((p) => p.name).join(" · ")}
+                          {day.problems.map((p: any) => p.name).join(" · ")}
                         </div>
                       )}
                     </td>

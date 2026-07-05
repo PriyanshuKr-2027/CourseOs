@@ -1,15 +1,29 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
-import { MOCK_DAYS } from "@/data/mockDays";
 import { getPatternBadgeStyle } from "@/lib/badgeStyle";
 import { MagnifyingGlass, CalendarBlank } from "@phosphor-icons/react";
+import { getDayNotes, getNotesLastEdited, getCurriculumDays } from "@/lib/store";
 
 export default function NotesPage() {
   const [search, setSearch] = useState("");
+  const [allNotes, setAllNotes] = useState<Record<number, string>>({});
+  const [days, setDays] = useState<any[]>([]);
 
-  const daysWithNotes = MOCK_DAYS.filter((d) => d.notes && d.notes.trim() !== "");
+  useEffect(() => {
+    setDays(getCurriculumDays());
+    setAllNotes(getDayNotes());
+  }, []);
+
+  const daysWithNotes = days.map((d: any) => {
+    const userNote = allNotes[d.id] || "";
+    return {
+      ...d,
+      notes: userNote,
+      lastEdited: getNotesLastEdited(d.id)
+    };
+  }).filter((d: any) => d.notes.trim() !== "");
 
   const filteredNotes = daysWithNotes.filter((day) => {
     return day.notes.toLowerCase().includes(search.toLowerCase()) ||

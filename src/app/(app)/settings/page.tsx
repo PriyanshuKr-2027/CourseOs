@@ -1,21 +1,103 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { ShieldWarning } from "@phosphor-icons/react";
+import { useSupabase } from "@/components/providers/SupabaseProvider";
+import { resetAllData } from "@/lib/store";
 
 export default function SettingsPage() {
-  const [name, setName] = useState("John Doe");
-  const [email, setEmail] = useState("john.doe@example.com");
+  const { profile, updateProfile, isMockMode, supabase, user } = useSupabase();
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
   const [darkMode, setDarkMode] = useState(false);
   const [reminders, setReminders] = useState(true);
 
+  useEffect(() => {
+    if (profile) {
+      setName(profile.name);
+      setEmail(profile.email);
+      setDarkMode(profile.darkMode);
+      setReminders(profile.reminders);
+    }
+  }, [profile]);
+
   const toggleDarkMode = () => {
-    setDarkMode(!darkMode);
-    document.documentElement.classList.toggle("dark");
+    const updatedDarkMode = !darkMode;
+    setDarkMode(updatedDarkMode);
+    document.documentElement.classList.toggle("dark", updatedDarkMode);
+    updateProfile({ darkMode: updatedDarkMode });
+  };
+
+  const toggleReminders = () => {
+    const updatedReminders = !reminders;
+    setReminders(updatedReminders);
+    updateProfile({ reminders: updatedReminders });
   };
 
   const handleSave = () => {
+    updateProfile({ name, email });
     alert("Settings saved successfully!");
+  };
+
+  const handleResetProgress = async () => {
+    if (!confirm("Are you sure you want to reset all your progress? This cannot be undone.")) {
+      return;
+    }
+
+    if (isMockMode) {
+      resetAllData();
+      alert("Progress reset successfully!");
+      window.location.reload();
+      return;
+    }
+
+    if (!user || !supabase) return;
+
+    try {
+      const { error: err1 } = await supabase.from("progress").delete().eq("user_id", user.id);
+      const { error: err2 } = await supabase.from("progress_days").delete().eq("user_id", user.id);
+      const { error: err3 } = await supabase.from("user_notes").delete().eq("user_id", user.id);
+      const { error: err4 } = await supabase
+        .from("profiles")
+        .update({ current_streak: 0, last_active_date: null })
+        .eq("id", user.id);
+
+      if (err1 || err2 || err3 || err4) {
+        throw new Error("Failed to clear data in one or more tables.");
+      }
+
+      alert("Progress reset successfully!");
+      window.location.reload();
+    } catch (e: any) {
+      console.error(e);
+      alert("Failed to reset progress. Please try again.");
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    if (!confirm("Are you absolutely sure you want to delete your account? All your data will be permanently deleted.")) {
+      return;
+    }
+
+    if (isMockMode) {
+      alert("Account deletion simulation.");
+      return;
+    }
+
+    if (!user || !supabase) return;
+
+    try {
+      // Deleting profile row cascading deletes references due to DB rules.
+      const { error } = await supabase.from("profiles").delete().eq("id", user.id);
+      if (error) throw error;
+      
+      await supabase.auth.signOut();
+      alert("Account deleted successfully.");
+      window.location.href = "/login";
+    } catch (e: any) {
+      console.error(e);
+      alert("Failed to delete account. Please try again.");
+    }
   };
 
   return (
@@ -29,11 +111,13 @@ export default function SettingsPage() {
       <section className="bg-surface border border-border rounded-2xl p-6 shadow-sm space-y-6">
         <div className="flex items-center gap-4">
           <div className="w-16 h-16 rounded-full bg-gray-200 overflow-hidden flex items-center justify-center">
-            <span className="text-xl font-bold text-gray-600">JD</span>
+            <span className="text-xl font-bold text-gray-600">
+              {name ? name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2) : "JD"}
+            </span>
           </div>
           <div>
             <h2 className="font-bold text-lg">Your Profile</h2>
-            <p className="text-xs text-text-secondary">Avatar managed via OAuth provider</p>
+            <p className="text-xs text-text-secondary">Profile synced with Supabase</p>
           </div>
         </div>
 
@@ -52,8 +136,8 @@ export default function SettingsPage() {
             <input
               type="email"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full px-4 py-2 rounded-lg bg-paper border border-border focus:outline-none focus:ring-2 focus:ring-focus/20 text-sm font-medium"
+              disabled
+              className="w-full px-4 py-2 rounded-lg bg-gray-100 border border-border focus:outline-none text-sm font-medium text-text-secondary cursor-not-allowed"
             />
           </div>
         </div>
@@ -61,7 +145,7 @@ export default function SettingsPage() {
         <div className="flex justify-end pt-2">
           <button
             onClick={handleSave}
-            className="px-5 py-2.5 bg-focus text-white rounded-lg font-medium shadow-sm hover:opacity-90 transition-opacity text-sm"
+            className="px-5 py-2.5 bg-focus text-white rounded-lg font-medium shadow-sm hover:opacity-90 transition-opacity text-sm cursor-pointer"
           >
             Save Changes
           </button>
@@ -92,7 +176,7 @@ export default function SettingsPage() {
               <p className="text-xs text-text-secondary">Get streak preservation alerts and daily plan updates</p>
             </div>
             <button
-              onClick={() => setReminders(!reminders)}
+              onClick={toggleReminders}
               className={`w-11 h-6 rounded-full transition-colors relative focus:outline-none ${reminders ? 'bg-signal' : 'bg-gray-200'}`}
             >
               <span className={`w-4 h-4 rounded-full bg-white absolute top-1 transition-transform ${reminders ? 'translate-x-6' : 'translate-x-1'}`} />
@@ -115,8 +199,8 @@ export default function SettingsPage() {
               <p className="text-xs text-text-secondary">Clear all solved checkboxes and streak data. This is irreversible.</p>
             </div>
             <button
-              onClick={() => confirm("Are you sure you want to reset all your progress? This cannot be undone.") && alert("Progress reset.")}
-              className="px-4 py-2 border border-alert/30 text-alert hover:bg-alert/10 transition-colors font-medium rounded-lg text-sm self-start sm:self-center"
+              onClick={handleResetProgress}
+              className="px-4 py-2 border border-alert/30 text-alert hover:bg-alert/10 transition-colors font-medium rounded-lg text-sm self-start sm:self-center cursor-pointer"
             >
               Reset All Progress
             </button>
@@ -128,8 +212,8 @@ export default function SettingsPage() {
               <p className="text-xs text-text-secondary">Permanently delete your profile, notes, and study logs.</p>
             </div>
             <button
-              onClick={() => confirm("Are you absolutely sure you want to delete your account? All data will be permanently deleted.") && alert("Account deletion simulation.")}
-              className="px-4 py-2 bg-alert text-white hover:opacity-90 transition-opacity font-medium rounded-lg text-sm self-start sm:self-center"
+              onClick={handleDeleteAccount}
+              className="px-4 py-2 bg-alert text-white hover:opacity-90 transition-opacity font-medium rounded-lg text-sm self-start sm:self-center cursor-pointer"
             >
               Delete Account
             </button>

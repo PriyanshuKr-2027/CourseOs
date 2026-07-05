@@ -3,8 +3,9 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { MOCK_DAYS, Day, Problem } from "@/data/mockDays";
+import { Day, Problem } from "@/data/mockDays";
 import { getPatternBadgeStyle, getDifficultyStyle } from "@/lib/badgeStyle";
+import { useSupabase } from "@/components/providers/SupabaseProvider";
 import {
   CaretLeft,
   CaretRight,
@@ -14,7 +15,16 @@ import {
   FilePdf,
   Sparkle,
   PaperPlaneRight,
+  PlayCircle,
+  YoutubeLogo,
 } from "@phosphor-icons/react";
+
+function getYoutubeId(url: string | null | undefined): string | null {
+  if (!url) return null;
+  const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+  const match = url.match(regExp);
+  return (match && match[2].length === 11) ? match[2] : null;
+}
 
 interface Message {
   role: "user" | "assistant";
@@ -25,25 +35,38 @@ export default function DayDetailPage({ params }: { params: Promise<{ id: string
   const resolvedParams = React.use(params);
   const router = useRouter();
   const dayId = parseInt(resolvedParams.id, 10);
-  
-  const [day, setDay] = React.useState<Day | undefined>(undefined);
+
+  const { 
+    days, 
+    planProgress, 
+    dayManualDone, 
+    dayNotes, 
+    loading: providerLoading,
+    toggleProblem: providerToggleProblem,
+    toggleManualDayDone: providerToggleManualDayDone,
+    saveDayNotes: providerSaveDayNotes
+  } = useSupabase();
+
   const [notesText, setNotesText] = React.useState("");
-  const [problems, setProblems] = React.useState<Problem[]>([]);
+  const [activeProblemIndex, setActiveProblemIndex] = React.useState<number>(0);
+  const [lastLoadedDayId, setLastLoadedDayId] = React.useState<number | null>(null);
+  
   const [chatMessages, setChatMessages] = React.useState<Message[]>([
     { role: "assistant", text: "Hello! Ask me anything about today's topic, problems, or notes. I can also summarize the video for you." }
   ]);
   const [inputMessage, setInputMessage] = React.useState("");
 
-  React.useEffect(() => {
-    const foundDay = MOCK_DAYS.find((d) => d.id === dayId);
-    if (foundDay) {
-      setDay(foundDay);
-      setNotesText(foundDay.notes || "");
-      setProblems(foundDay.problems);
-    }
-  }, [dayId]);
+  const day = days.find((d: any) => d.id === dayId);
 
-  if (!day) {
+  React.useEffect(() => {
+    if (day && lastLoadedDayId !== dayId) {
+      setNotesText(dayNotes[dayId] || "");
+      setLastLoadedDayId(dayId);
+      setActiveProblemIndex(0);
+    }
+  }, [dayId, day, dayNotes, lastLoadedDayId]);
+
+  if (providerLoading || !day) {
     return (
       <div className="flex flex-col items-center justify-center py-20 space-y-4">
         <h2 className="text-xl font-bold">Loading Day Content...</h2>
@@ -51,10 +74,25 @@ export default function DayDetailPage({ params }: { params: Promise<{ id: string
     );
   }
 
+  // Derive problems solved states
+  const problems: Problem[] = day.problems.map((prob: any, idx: number) => ({
+    ...prob,
+    done: !!planProgress[`${dayId}_${idx}`]
+  }));
+
+  const manualDone = !!dayManualDone[dayId];
+
   const toggleProblem = (idx: number) => {
-    const updated = [...problems];
-    updated[idx] = { ...updated[idx], done: !updated[idx].done };
-    setProblems(updated);
+    providerToggleProblem(dayId, idx);
+  };
+
+  const toggleManualDayDone = () => {
+    providerToggleManualDayDone(dayId);
+  };
+
+  const handleNotesChange = (text: string) => {
+    setNotesText(text);
+    providerSaveDayNotes(dayId, text);
   };
 
   const handleSendMessage = (textToSend?: string) => {
@@ -124,22 +162,48 @@ export default function DayDetailPage({ params }: { params: Promise<{ id: string
         {/* Left Column (Content & Notes) */}
         <div className="lg:col-span-7 space-y-6">
           {/* YouTube Video Player */}
-          {day.youtubeId ? (
-            <div className="aspect-video w-full rounded-2xl overflow-hidden bg-black shadow-sm border border-border relative">
-              <iframe
-                src={`https://www.youtube.com/embed/${day.youtubeId}`}
-                title="YouTube video player"
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                allowFullScreen
-                className="w-full h-full border-0"
-              />
-            </div>
+          {problems.length > 0 ? (
+            (() => {
+              const activeProblem = problems[activeProblemIndex];
+              if (!activeProblem) return null;
+              const ytId = getYoutubeId(activeProblem.youtubeUrl);
+              if (ytId) {
+                return (
+                  <div className="space-y-3">
+                    <div className="aspect-video w-full rounded-2xl overflow-hidden bg-black shadow-sm border border-border relative">
+                      <iframe
+                        src={`https://www.youtube.com/embed/${ytId}`}
+                        title={`YouTube video player - ${activeProblem.name}`}
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                        allowFullScreen
+                        className="w-full h-full border-0"
+                      />
+                    </div>
+                    <div className="flex items-center justify-between px-3 py-2 bg-surface border border-border rounded-xl shadow-sm">
+                      <span className="text-xs text-text-secondary flex items-center gap-1.5">
+                        <YoutubeLogo className="w-4 h-4 text-red-500" />
+                        Currently playing video for: <strong className="text-text-primary">{activeProblem.name}</strong>
+                      </span>
+                    </div>
+                  </div>
+                );
+              } else {
+                return (
+                  <div className="aspect-video w-full rounded-2xl border-2 border-dashed border-border flex flex-col items-center justify-center p-8 bg-surface space-y-3 text-center">
+                    <div className="p-3 bg-amber-50 dark:bg-amber-950/20 text-amber-500 rounded-full animate-pulse">
+                      <PlayCircle className="w-8 h-8" />
+                    </div>
+                    <h3 className="font-bold text-lg text-text-primary">Videos are coming soon</h3>
+                    <p className="text-text-secondary text-sm max-w-sm">
+                      A video explanation for <strong className="text-text-primary">{activeProblem.name}</strong> is in production. Check back later!
+                    </p>
+                  </div>
+                );
+              }
+            })()
           ) : (
             <div className="aspect-video w-full rounded-2xl border-2 border-dashed border-border flex flex-col items-center justify-center p-8 bg-surface space-y-3 text-center">
-              <p className="text-text-secondary font-medium">No video assigned to this review day.</p>
-              <button className="text-xs px-3 py-1.5 bg-paper hover:bg-border rounded-lg border border-border font-medium transition-colors">
-                Link YouTube Video
-              </button>
+              <p className="text-text-secondary font-medium">No specific problems assigned to this review day.</p>
             </div>
           )}
 
@@ -147,38 +211,88 @@ export default function DayDetailPage({ params }: { params: Promise<{ id: string
           <section className="bg-surface border border-border rounded-2xl p-6 shadow-sm space-y-4">
             <h2 className="font-bold text-lg">Problems for today</h2>
             {problems.length > 0 ? (
-              <div className="divide-y divide-border">
+              <div className="space-y-2">
                 {problems.map((prob, i) => (
-                  <div key={i} className="flex items-center justify-between py-3.5 first:pt-0 last:pb-0">
+                  <div
+                    key={i}
+                    onClick={() => setActiveProblemIndex(i)}
+                    className={`flex items-center justify-between p-3.5 rounded-xl border transition-all cursor-pointer ${
+                      i === activeProblemIndex
+                        ? "bg-focus/5 border-focus/30 shadow-sm"
+                        : "border-transparent hover:bg-paper"
+                    }`}
+                  >
                     <div className="flex items-center gap-3">
                       <button
-                        onClick={() => toggleProblem(i)}
-                        className="text-text-secondary hover:text-signal transition-colors"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleProblem(i);
+                        }}
+                        className="text-text-secondary hover:text-signal transition-colors focus:outline-none"
                       >
                         {prob.done ? <CheckCircle weight="fill" className="w-6 h-6 text-signal" /> : <Circle className="w-6 h-6" />}
                       </button>
                       <div>
-                        <span className="font-mono text-sm font-semibold">{prob.name}</span>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-mono text-sm font-semibold text-text-primary">{prob.name}</span>
+                          {prob.isMissingVideo && (
+                            <span className="text-[9px] font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200 uppercase tracking-wider">
+                              Videos coming soon
+                            </span>
+                          )}
+                        </div>
                         <div className="mt-1 flex gap-2">
-                          <span className={`text-[10px] font-semibold px-2 py-0.5 rounded ${getDifficultyStyle(prob.difficulty)}`}>
-                            {prob.difficulty}
-                          </span>
+                          {prob.difficulty && (
+                            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded ${getDifficultyStyle(prob.difficulty)}`}>
+                              {prob.difficulty}
+                            </span>
+                          )}
                         </div>
                       </div>
                     </div>
-                    <a
-                      href={prob.leetcodeUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="p-2 hover:bg-paper rounded-lg text-text-secondary hover:text-focus transition-colors"
-                    >
-                      <ArrowUpRight className="w-5 h-5" />
-                    </a>
+                    
+                    <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                      {prob.gfgUrl && (
+                        <a
+                          href={prob.gfgUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-2 py-1 text-[11px] bg-[#E8F5E9] hover:bg-[#C8E6C9] text-[#2E7D32] border border-[#A5D6A7] rounded font-semibold transition-colors"
+                          title="GFG Practice Link"
+                        >
+                          GFG
+                        </a>
+                      )}
+                      {prob.leetcodeUrl ? (
+                        <a
+                          href={prob.leetcodeUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="p-2 hover:bg-paper rounded-lg text-text-secondary hover:text-focus transition-colors"
+                          title="LeetCode Link"
+                        >
+                          <ArrowUpRight className="w-5 h-5" />
+                        </a>
+                      ) : null}
+                    </div>
                   </div>
                 ))}
               </div>
             ) : (
-              <p className="text-text-secondary text-sm">No specific problems assigned. Utilize today to revise.</p>
+              <div className="space-y-4">
+                <p className="text-text-secondary text-sm">No specific problems assigned. Utilize today to revise.</p>
+                <button
+                  onClick={toggleManualDayDone}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold border transition-all ${
+                    manualDone 
+                      ? "bg-signal/15 border-signal/30 text-signal hover:bg-signal/20" 
+                      : "bg-paper border-border text-text-primary hover:bg-border"
+                  }`}
+                >
+                  {manualDone ? <CheckCircle weight="fill" className="w-5 h-5 text-signal" /> : <Circle className="w-5 h-5" />}
+                  {manualDone ? "Day Completed" : "Mark Day as Completed"}
+                </button>
+              </div>
             )}
           </section>
 
@@ -190,7 +304,7 @@ export default function DayDetailPage({ params }: { params: Promise<{ id: string
             </div>
             <textarea
               value={notesText}
-              onChange={(e) => setNotesText(e.target.value)}
+              onChange={(e) => handleNotesChange(e.target.value)}
               placeholder="Write down details, algorithms, or snippets for today's topics..."
               className="w-full min-h-[160px] p-4 bg-paper rounded-xl border border-border focus:outline-none focus:ring-2 focus:ring-focus/20 text-sm font-sans resize-y"
             />
