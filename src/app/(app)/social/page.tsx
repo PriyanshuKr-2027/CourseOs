@@ -22,8 +22,7 @@ import {
   Channel as StreamChannelProvider,
   Window as StreamWindow,
   MessageList as StreamMessageList,
-  MessageComposer as StreamMessageComposer,
-  ChannelHeader as StreamChannelHeader
+  MessageComposer as StreamMessageComposer
 } from "stream-chat-react";
 
 import {
@@ -189,13 +188,18 @@ export default function SocialPage() {
 function GlobalCallOverlay({ videoClient }: { videoClient: StreamVideoClient }) {
   const calls = useCalls();
   const activeCall = calls.find(
-    (c) => c.state.callingState === "ringing" || c.state.callingState === "joined"
+    (c) =>
+      c.state.callingState === "ringing" ||
+      c.state.callingState === "joining" ||
+      c.state.callingState === "joined" ||
+      c.state.callingState === "reconnecting" ||
+      c.state.callingState === "migrating"
   );
 
   if (!activeCall) return null;
 
-  const isRinging = activeCall.state.callingState === "ringing";
-  const isIncoming = isRinging && !activeCall.isCreatedByMe;
+  const callingState = activeCall.state.callingState;
+  const isIncoming = callingState === "ringing" && !activeCall.isCreatedByMe;
 
   const handleDecline = async () => {
     try {
@@ -215,8 +219,7 @@ function GlobalCallOverlay({ videoClient }: { videoClient: StreamVideoClient }) 
 
   const handleLeave = async () => {
     try {
-      const state = activeCall.state.callingState;
-      if (state !== "left") {
+      if (callingState !== "left") {
         await activeCall.leave();
       }
     } catch (e) {
@@ -271,13 +274,26 @@ function GlobalCallOverlay({ videoClient }: { videoClient: StreamVideoClient }) 
           <StreamCall call={activeCall}>
             <div className="flex-1 flex flex-col justify-between p-4 h-full">
               <h4 className="text-center text-sm font-bold mt-2">
-                {isRinging
-                  ? `Calling...`
-                  : `Active Call`
-                }
+                {callingState === "ringing" && "Calling (Waiting for answer)..."}
+                {callingState === "joining" && "Joining call..."}
+                {callingState === "joined" && "Active Call"}
+                {callingState === "reconnecting" && "Reconnecting..."}
+                {callingState === "migrating" && "Migrating call..."}
               </h4>
               <div className="flex-grow flex flex-col items-center justify-center relative bg-gray-950 rounded-2xl overflow-hidden min-h-[400px] mt-4">
-                <SpeakerLayout />
+                {callingState === "joined" ? (
+                  <SpeakerLayout />
+                ) : (
+                  <div className="flex flex-col items-center gap-4 text-slate-400">
+                    <div className="w-12 h-12 rounded-full border-4 border-focus border-t-transparent animate-spin"></div>
+                    <p className="text-sm font-semibold">
+                      {callingState === "ringing" && "Waiting for receiver to accept..."}
+                      {callingState === "joining" && "Connecting to media stream..."}
+                      {callingState === "reconnecting" && "Attempting to reconnect..."}
+                      {callingState === "migrating" && "Switching connection..."}
+                    </p>
+                  </div>
+                )}
                 <CallControls onLeave={handleLeave} />
               </div>
             </div>
@@ -1048,7 +1064,6 @@ function SocialWorkspaceContent({
                     <StreamChatProvider client={chatClient}>
                       <StreamChannelProvider channel={streamChannel}>
                         <StreamWindow>
-                          <StreamChannelHeader />
                           <StreamMessageList />
                           <StreamMessageComposer />
                         </StreamWindow>

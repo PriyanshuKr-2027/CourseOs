@@ -6,7 +6,7 @@ import { createClient } from "@/lib/supabase/client";
 import { getProfile as getMockProfile, saveProfile as saveMockProfile, getPlanProgress as getMockProgress, savePlanProgress as saveMockProgress, getDayManualDone as getMockManualDone, saveDayManualDone as saveMockManualDone, getDayNotes as getMockNotes, saveDayNotes as saveMockNotes, getStreakInfo as getMockStreak, saveStreakInfo as saveMockStreak, getCurriculumDays as getMockDays } from "@/lib/store";
 import topicsData from "@/data/risingbrain_data.json";
 import { Profile, Day, Problem } from "@/types";
-import { SupabaseClient, User, AuthError } from "@supabase/supabase-js";
+import { SupabaseClient, User, AuthError, Session } from "@supabase/supabase-js";
 
 interface JSONProblem {
   id: string;
@@ -113,7 +113,7 @@ interface SupabaseContextType {
   loading: boolean;
   isMockMode: boolean;
   signIn: (email: string, password: string) => Promise<{ error: AuthError | Error | null }>;
-  signUp: (email: string, password: string, name: string) => Promise<{ error: AuthError | Error | null }>;
+  signUp: (email: string, password: string, name: string) => Promise<{ data: { user: User | null; session: Session | null } | null; error: AuthError | Error | null }>;
   signOut: () => Promise<void>;
   toggleProblem: (dayId: number, problemIndex: number) => Promise<void>;
   toggleSheetProblem: (problemId: string) => Promise<void>;
@@ -408,7 +408,13 @@ export function SupabaseProvider({ children }: { children: React.ReactNode }) {
       setProfile(mockP);
       setUser({ email } as User);
       router.push("/dashboard");
-      return { error: null };
+      return { 
+        data: { 
+          user: { email } as User, 
+          session: { access_token: "mock-token", refresh_token: "mock-token", expires_in: 3600, token_type: "bearer", user: { email } as User } as Session 
+        }, 
+        error: null 
+      };
     }
     return await supabase!.auth.signUp({
       email,
