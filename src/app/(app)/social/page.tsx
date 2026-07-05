@@ -32,6 +32,7 @@ import {
   CallControls,
   SpeakerLayout,
   useCalls,
+  useCallStateHooks,
   StreamTheme
 } from "@stream-io/video-react-sdk";
 
@@ -272,36 +273,63 @@ function GlobalCallOverlay({ videoClient }: { videoClient: StreamVideoClient }) 
         ) : (
           /* Active Call full-screen window */
           <StreamCall call={activeCall}>
-            <div className="flex-1 flex flex-col justify-between p-4 h-full">
-              <h4 className="text-center text-sm font-bold mt-2">
-                {callingState === "ringing" && "Calling (Waiting for answer)..."}
-                {callingState === "joining" && "Joining call..."}
-                {callingState === "joined" && "Active Call"}
-                {callingState === "reconnecting" && "Reconnecting..."}
-                {callingState === "migrating" && "Migrating call..."}
-              </h4>
-              <div className="flex-grow flex flex-col items-center justify-center relative bg-gray-950 rounded-2xl overflow-hidden min-h-[400px] mt-4">
-                {callingState === "joined" ? (
-                  <SpeakerLayout />
-                ) : (
-                  <div className="flex flex-col items-center gap-4 text-slate-400">
-                    <div className="w-12 h-12 rounded-full border-4 border-focus border-t-transparent animate-spin"></div>
-                    <p className="text-sm font-semibold">
-                      {callingState === "ringing" && "Waiting for receiver to accept..."}
-                      {callingState === "joining" && "Connecting to media stream..."}
-                      {callingState === "reconnecting" && "Attempting to reconnect..."}
-                      {callingState === "migrating" && "Switching connection..."}
-                    </p>
-                  </div>
-                )}
-              </div>
-              <div className="mt-4 flex justify-center">
-                <CallControls onLeave={handleLeave} />
-              </div>
-            </div>
+            <OutboundCallView callingState={callingState} handleLeave={handleLeave} />
           </StreamCall>
         )}
       </StreamTheme>
+    </div>
+  );
+}
+
+/**
+ * Rendered inside <StreamCall> so it can use SDK hooks.
+ * Shows a spinner until the remote participant actually joins,
+ * then switches to the full SpeakerLayout.
+ */
+function OutboundCallView({
+  callingState,
+  handleLeave
+}: {
+  callingState: string;
+  handleLeave: () => void;
+}) {
+  const { useParticipants } = useCallStateHooks();
+  const participants = useParticipants();
+  const remoteParticipants = participants.filter((p) => !p.isLocalParticipant);
+  const isWaitingForOthers = callingState === "joined" && remoteParticipants.length === 0;
+  const showLiveVideo = callingState === "joined" && !isWaitingForOthers;
+
+  const statusLabel =
+    callingState === "ringing" ? "Calling — Waiting for answer..."
+    : callingState === "joining" ? "Joining call..."
+    : callingState === "reconnecting" ? "Reconnecting..."
+    : callingState === "migrating" ? "Migrating call..."
+    : isWaitingForOthers ? "Waiting for the other party to join..."
+    : "Active Call";
+
+  const spinnerText =
+    callingState === "ringing" ? "Waiting for receiver to accept..."
+    : callingState === "joining" ? "Connecting to media stream..."
+    : callingState === "reconnecting" ? "Attempting to reconnect..."
+    : callingState === "migrating" ? "Switching connection..."
+    : "Waiting for receiver to join...";
+
+  return (
+    <div className="flex-1 flex flex-col justify-between p-4 h-full">
+      <h4 className="text-center text-sm font-bold mt-2">{statusLabel}</h4>
+      <div className="flex-grow flex flex-col relative bg-gray-950 rounded-2xl overflow-hidden min-h-[400px] mt-4">
+        {showLiveVideo ? (
+          <SpeakerLayout />
+        ) : (
+          <div className="flex-1 flex flex-col items-center justify-center gap-4 text-slate-400">
+            <div className="w-12 h-12 rounded-full border-4 border-focus border-t-transparent animate-spin"></div>
+            <p className="text-sm font-semibold">{spinnerText}</p>
+          </div>
+        )}
+        <div className="absolute bottom-0 left-0 right-0 flex justify-center pb-4">
+          <CallControls onLeave={handleLeave} />
+        </div>
+      </div>
     </div>
   );
 }
@@ -718,7 +746,7 @@ function SocialWorkspaceContent({
   }
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6 pb-6 relative">
+    <div className="max-w-6xl mx-auto space-y-6 pb-20 relative h-[calc(100vh-8rem)]">
       {/* Top Banner & Profile Info */}
       <section className="bg-surface border border-border p-4 rounded-2xl shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="space-y-1">
@@ -745,7 +773,7 @@ function SocialWorkspaceContent({
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 h-full items-stretch">
         
         {/* Left Column: Lists */}
-        <div className="lg:col-span-4 bg-surface border border-border rounded-2xl flex flex-col overflow-hidden shadow-sm" style={{height: 'calc(100vh - 14rem)', minHeight: '400px'}}>
+        <div className="lg:col-span-4 bg-surface border border-border rounded-2xl flex flex-col overflow-hidden shadow-sm h-[600px]">
           {/* Navigation Tabs */}
           <div className="grid grid-cols-3 border-b border-border bg-gray-50/50 p-1.5 gap-1 text-center">
             <button
@@ -1014,7 +1042,7 @@ function SocialWorkspaceContent({
         </div>
 
         {/* Right Column: Chat/Call Workspace */}
-        <div className="lg:col-span-8 bg-surface border border-border rounded-2xl flex flex-col overflow-hidden shadow-sm relative" style={{height: 'calc(100vh - 14rem)', minHeight: '400px'}}>
+        <div className="lg:col-span-8 bg-surface border border-border rounded-2xl flex flex-col overflow-hidden shadow-sm h-[600px] relative">
           
           {(activeFriend || activeGroup) ? (
             <div className="flex flex-col h-full relative">
