@@ -23,6 +23,7 @@ import {
 } from "@phosphor-icons/react";
 
 import { useSupabase } from "@/components/providers/SupabaseProvider";
+import { SetupModal } from "@/components/layout/SetupModal";
 
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/dashboard", icon: SquaresFour },
@@ -190,6 +191,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <main className="flex-1 p-8">
           {children}
         </main>
+        <SetupModal />
       </div>
     </div>
   );

@@ -44,7 +44,9 @@ export default function DayDetailPage({ params }: { params: Promise<{ id: string
     loading: providerLoading,
     toggleProblem: providerToggleProblem,
     toggleManualDayDone: providerToggleManualDayDone,
-    saveDayNotes: providerSaveDayNotes
+    saveDayNotes: providerSaveDayNotes,
+    profile,
+    isMockMode
   } = useSupabase();
 
   const [notesText, setNotesText] = React.useState("");
@@ -95,7 +97,7 @@ export default function DayDetailPage({ params }: { params: Promise<{ id: string
     providerSaveDayNotes(dayId, text);
   };
 
-  const handleSendMessage = (textToSend?: string) => {
+  const handleSendMessage = async (textToSend?: string) => {
     const msg = textToSend || inputMessage;
     if (!msg.trim()) return;
 
@@ -103,22 +105,83 @@ export default function DayDetailPage({ params }: { params: Promise<{ id: string
     setChatMessages(newMsgs);
     if (!textToSend) setInputMessage("");
 
-    // Simulate assistant response
-    setTimeout(() => {
-      let reply = "";
-      if (msg.includes("Summarize this video")) {
-        reply = `Here is a summary of the video for **Day ${day.id}: ${day.topic}**:\n\n1. **Core Concept**: Introduction to ${day.pattern} and why it's efficient.\n2. **Complexity Analysis**: Discusses Time Complexity O(N) vs O(N²) and Space Complexity O(1).\n3. **Practical Examples**: Highlights common edge cases like empty collections, single element datasets, and extreme bounds.`;
-      } else if (msg.includes("Summarize my notes")) {
-        reply = notesText.trim() 
-          ? `Based on your notes for today:\n\n> "${notesText}"\n\nYou've focused on the key pointer tracking and boundary conditions. Ensure you double-check your pointer comparisons (e.g., \`left < right\`).`
-          : "You haven't written any notes for today yet! Write something in the notes box and I'll summarize it.";
-      } else if (msg.includes("Explain this pattern")) {
-        reply = `The **${day.pattern}** pattern is a highly efficient technique used to optimize array/list operations. By employing structural traversal strategies, we can reduce Time Complexity from nested O(N²) iterations down to a single linear O(N) sweep.`;
-      } else {
-        reply = `I've analyzed your question about "${msg}". In the context of ${day.pattern}, the key is to ensure we update our states correctly at each iteration. Let me know if you want me to write code snippets for any of the problems listed!`;
+    // Setup helper message mappings for quick actions
+    let actualPrompt = msg;
+    if (msg === "Summarize this video") {
+      actualPrompt = `Please summarize the study video content for Day ${day.id}: ${day.topic}. Identify the main concepts, time complexity discuss, and edge cases.`;
+    } else if (msg === "Summarize my notes") {
+      actualPrompt = notesText.trim() 
+        ? `Here are my personal notes for today: "${notesText}". Can you summarize the core takeaways and suggest what I might have missed or should watch out for?`
+        : "Explain what notes I should take for today's topic and problems to maximize revision efficiency.";
+    } else if (msg === "Explain this pattern") {
+      actualPrompt = `Explain the "${day.pattern}" pattern in detail. Provide a text illustration and explain how it helps optimize algorithms.`;
+    }
+
+    // Add temporary assistant thinking message
+    setChatMessages([...newMsgs, { role: "assistant", text: "Thinking..." }]);
+
+    try {
+      const formattedHistory = newMsgs.map(m => ({
+        role: m.role,
+        content: m.role === "user" && m.text === msg ? actualPrompt : m.text
+      }));
+
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: formattedHistory,
+          dayInfo: { id: day.id, topic: day.topic, pattern: day.pattern },
+          apiKey: isMockMode ? profile.groqApiKey : undefined
+        })
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || "Failed to query AI assistant");
       }
-      setChatMessages((prev) => [...prev, { role: "assistant", text: reply }]);
-    }, 1000);
+
+      const reader = res.body?.getReader();
+      const decoder = new TextDecoder();
+      if (!reader) throw new Error("No reader available");
+
+      let streamedText = "";
+      let buffer = "";
+
+      // Clear the "Thinking..." text
+      setChatMessages([...newMsgs, { role: "assistant", text: "" }]);
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          const cleanLine = line.trim();
+          if (!cleanLine) continue;
+          if (cleanLine.startsWith("data: ")) {
+            const dataStr = cleanLine.slice(6).trim();
+            if (dataStr === "[DONE]") continue;
+            try {
+              const data = JSON.parse(dataStr);
+              const content = data.choices[0]?.delta?.content || "";
+              streamedText += content;
+              setChatMessages([...newMsgs, { role: "assistant", text: streamedText }]);
+            } catch (e) {
+              // Ignore partial JSON parsing errors
+            }
+          }
+        }
+      }
+    } catch (err: any) {
+      setChatMessages([
+        ...newMsgs,
+        { role: "assistant", text: `Error: ${err.message || "Could not reach assistant."} Please check your Groq API Key settings.` }
+      ]);
+    }
   };
 
   return (

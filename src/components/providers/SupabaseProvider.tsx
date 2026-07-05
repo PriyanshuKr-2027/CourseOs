@@ -13,6 +13,10 @@ interface Profile {
   role?: "learner" | "admin";
   current_streak?: number;
   last_active_date?: string;
+  hasCompletedSetup?: boolean;
+  dob?: string;
+  mobileNo?: string;
+  groqApiKey?: string;
 }
 
 interface SupabaseContextType {
@@ -59,6 +63,10 @@ export function SupabaseProvider({ children }: { children: React.ReactNode }) {
     role: "learner",
     current_streak: 0,
     last_active_date: "",
+    hasCompletedSetup: false,
+    dob: "",
+    mobileNo: "",
+    groqApiKey: "",
   });
   const [days, setDays] = useState<any[]>([]);
   const [planProgress, setPlanProgress] = useState<Record<string, boolean>>({});
@@ -104,7 +112,19 @@ export function SupabaseProvider({ children }: { children: React.ReactNode }) {
         if (profError) {
           console.error("Error fetching profile:", profError);
         } else if (profData) {
-          setProfile(profData);
+          setProfile({
+            name: profData.name,
+            email: profData.email,
+            darkMode: profData.dark_mode,
+            reminders: profData.reminders,
+            role: profData.role,
+            current_streak: profData.current_streak,
+            last_active_date: profData.last_active_date,
+            hasCompletedSetup: profData.has_completed_setup,
+            dob: profData.dob || "",
+            mobileNo: profData.mobile_no || "",
+            groqApiKey: profData.groq_api_key || "",
+          });
           setStreak(profData.current_streak || 0);
           if (profData.dark_mode) {
             document.documentElement.classList.add("dark");
@@ -499,13 +519,18 @@ export function SupabaseProvider({ children }: { children: React.ReactNode }) {
     if (!user) return;
 
     try {
+      const updatePayload: any = {};
+      if (profileData.name !== undefined) updatePayload.name = profileData.name;
+      if (profileData.darkMode !== undefined) updatePayload.dark_mode = profileData.darkMode;
+      if (profileData.reminders !== undefined) updatePayload.reminders = profileData.reminders;
+      if (profileData.hasCompletedSetup !== undefined) updatePayload.has_completed_setup = profileData.hasCompletedSetup;
+      if (profileData.dob !== undefined) updatePayload.dob = profileData.dob;
+      if (profileData.mobileNo !== undefined) updatePayload.mobile_no = profileData.mobileNo;
+      if (profileData.groqApiKey !== undefined) updatePayload.groq_api_key = profileData.groqApiKey;
+
       const { error } = await supabase!
         .from("profiles")
-        .update({
-          name: profileData.name !== undefined ? profileData.name : profile.name,
-          dark_mode: profileData.darkMode !== undefined ? profileData.darkMode : profile.darkMode,
-          reminders: profileData.reminders !== undefined ? profileData.reminders : profile.reminders,
-        })
+        .update(updatePayload)
         .eq("id", user.id);
 
       if (error) throw error;
