@@ -1,39 +1,32 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { getPatternBadgeStyle } from "@/lib/badgeStyle";
 import { MagnifyingGlass, CheckCircle, Circle, PlayCircle } from "@phosphor-icons/react";
-import { getPlanProgress, getDayManualDone, getCurriculumDays } from "@/lib/store";
+import { useSupabase } from "@/components/providers/SupabaseProvider";
+import { Day, Problem } from "@/types";
 
 export default function PlanPage() {
   const [search, setSearch] = useState("");
   const [selectedPattern, setSelectedPattern] = useState("All");
   const [selectedStatus, setSelectedStatus] = useState("All");
-  const [planProgress, setPlanProgress] = useState<Record<string, boolean>>({});
-  const [dayManualDone, setDayManualDone] = useState<Record<number, boolean>>({});
-  const [days, setDays] = useState<any[]>([]);
-
-  useEffect(() => {
-    setDays(getCurriculumDays());
-    setPlanProgress(getPlanProgress());
-    setDayManualDone(getDayManualDone());
-  }, []);
+  const { days, planProgress, dayManualDone } = useSupabase();
 
   const patterns = ["All", ...Array.from(new Set(days.map((d) => d.pattern)))];
 
-  const getDayProgress = (day: any) => {
+  const getDayProgress = (day: Day) => {
     const total = day.problems?.length || 0;
     if (total === 0) {
       return dayManualDone[day.id] ? 100 : 0;
     }
-    const solved = day.problems.filter((_: any, idx: number) => !!planProgress[`${day.id}_${idx}`]).length;
+    const solved = day.problems.filter((_: Problem, idx: number) => !!planProgress[`${day.id}_${idx}`]).length;
     return Math.round((solved / total) * 100);
   };
 
   const filteredDays = days.filter((day) => {
     const matchesSearch = day.topic.toLowerCase().includes(search.toLowerCase()) || 
-      day.problems.some((p: any) => p.name.toLowerCase().includes(search.toLowerCase())) ||
+      day.problems.some((p: Problem) => p.name.toLowerCase().includes(search.toLowerCase())) ||
       `day ${day.id}`.includes(search.toLowerCase());
     const matchesPattern = selectedPattern === "All" || day.pattern === selectedPattern;
     
@@ -139,9 +132,9 @@ export default function PlanPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {filteredDays.map((day: any) => {
+              {filteredDays.map((day: Day) => {
                 const total = day.problems?.length || 0;
-                const solved = day.problems ? day.problems.filter((_: any, idx: number) => !!planProgress[`${day.id}_${idx}`]).length : 0;
+                const solved = day.problems ? day.problems.filter((_: Problem, idx: number) => !!planProgress[`${day.id}_${idx}`]).length : 0;
                 const percentage = getDayProgress(day);
 
                 return (
@@ -151,7 +144,7 @@ export default function PlanPage() {
                       <div className="font-semibold text-sm">{day.topic}</div>
                       {day.problems.length > 0 && (
                         <div className="text-xs text-text-secondary mt-1">
-                          {day.problems.map((p: any) => p.name).join(" · ")}
+                          {day.problems.map((p: Problem) => p.name).join(" · ")}
                         </div>
                       )}
                     </td>

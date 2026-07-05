@@ -1,8 +1,10 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import topicsData from "@/data/risingbrain_data.json";
 import { getDifficultyStyle } from "@/lib/badgeStyle";
+import { useSupabase } from "@/components/providers/SupabaseProvider";
 import {
   CheckCircle,
   Circle,
@@ -15,8 +17,11 @@ import {
   Briefcase,
   Sparkle,
   X,
-  PaperPlaneRight
+  PaperPlaneRight,
+  Clock,
+  Plus
 } from "@phosphor-icons/react";
+import { MarkdownRenderer } from "@/components/layout/MarkdownRenderer";
 
 interface Company {
   id: string;
@@ -53,14 +58,19 @@ interface Topic {
   subtopics: Subtopic[];
 }
 
-export default function PatternSheetPage() {
+function PatternSheetPageContent() {
+  const { completedProblems, toggleSheetProblem, getChatHistory, saveChatMessage, isMockMode, profile } = useSupabase();
+
   const [search, setSearch] = useState("");
   const [selectedDifficulty, setSelectedDifficulty] = useState("All");
   const [selectedStatus, setSelectedStatus] = useState("All");
-  const [completedProblems, setCompletedProblems] = useState<Record<string, boolean>>({});
   
   // Track which subtopics are expanded
   const [expandedSubtopics, setExpandedSubtopics] = useState<Record<string, boolean>>({});
+
+  const searchParams = useSearchParams();
+  const urlProblemId = searchParams.get("problemId");
+  const urlSubtopicId = searchParams.get("subtopicId");
 
   // Active subtopic and problem state
   const [activeSubtopicId, setActiveSubtopicId] = useState<string>("");
@@ -69,49 +79,94 @@ export default function PatternSheetPage() {
   // AI chat drawer state (FAB popover toggle)
   const [isChatOpen, setIsChatOpen] = useState(false);
 
-  // AI chat messages state per problem
-  const [chatMessages, setChatMessages] = useState<Record<string, { role: "user" | "assistant"; text: string }[]>>({});
+  // Active chat messages state for current problem
+  const [activeChatMessages, setActiveChatMessages] = useState<{ role: "user" | "assistant"; text: string }[]>([]);
   const [inputMessage, setInputMessage] = useState("");
+
+  // Chat session states
+  const [activeSessionId, setActiveSessionId] = useState<string>("");
+  const [showHistory, setShowHistory] = useState(false);
+  const [allHistoryMessages, setAllHistoryMessages] = useState<any[]>([]);
+
+  // Function to initialize new session ID
+  const handleStartNewSession = () => {
+    const newSid = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2);
+    setActiveSessionId(newSid);
+    setActiveChatMessages([
+      { role: "assistant", text: `Hello! Ask me anything about the problem "${activeProblem?.title || ''}". I can help you with the logic, edge cases, or complexity analysis.` }
+    ]);
+    setShowHistory(false);
+  };
+
+  // Helper to group allHistoryMessages by sessionId
+  const getSessionsList = () => {
+    const grouped: Record<string, any[]> = {};
+    allHistoryMessages.forEach(m => {
+      const sid = m.sessionId || "default";
+      if (!grouped[sid]) grouped[sid] = [];
+      grouped[sid].push(m);
+    });
+
+    return Object.entries(grouped).map(([sid, msgs]) => {
+      const firstUserMsg = msgs.find(m => m.role === "user")?.text || "Assistant Chat";
+      const date = msgs[0]?.createdAt ? new Date(msgs[0].createdAt).toLocaleDateString(undefined, {
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit"
+      }) : "Previous Session";
+      return {
+        sessionId: sid,
+        title: firstUserMsg,
+        messages: msgs,
+        date
+      };
+    }).reverse(); // Most recent first
+  };
+
+  const handleSelectSession = (sid: string, msgs: any[]) => {
+    setActiveSessionId(sid);
+    setActiveChatMessages(msgs);
+    setShowHistory(false);
+  };
 
   // Convert raw JSON data to type Topic[]
   const topics = topicsData as Topic[];
 
-  // Initialize active subtopic and problem on mount or when topics load
+  // Initialize active subtopic and problem on mount or when topics load, respecting query parameters
   useEffect(() => {
     if (topics.length > 0) {
-      for (const topic of topics) {
-        if (topic.subtopics.length > 0) {
-          const firstSub = topic.subtopics[0];
-          setActiveSubtopicId(firstSub.id);
-          // Expand the default subtopic
-          setExpandedSubtopics(prev => ({ ...prev, [firstSub.id]: true }));
-          if (firstSub.problems.length > 0) {
-            setActiveProblemId(firstSub.problems[0].id);
+      if (urlProblemId && urlSubtopicId) {
+        setActiveSubtopicId(urlSubtopicId);
+        setExpandedSubtopics((prev) => ({ ...prev, [urlSubtopicId]: true }));
+        setActiveProblemId(urlProblemId);
+
+        // Scroll the selected topic into view if it exists
+        setTimeout(() => {
+          const element = document.getElementById(`topic-${topics.find(t => t.subtopics.some(s => s.id === urlSubtopicId))?.id}`);
+          if (element) {
+            element.scrollIntoView({ behavior: "smooth" });
           }
-          break;
+        }, 300);
+      } else {
+        for (const topic of topics) {
+          if (topic.subtopics.length > 0) {
+            const firstSub = topic.subtopics[0];
+            setActiveSubtopicId(firstSub.id);
+            // Expand the default subtopic
+            setExpandedSubtopics(prev => ({ ...prev, [firstSub.id]: true }));
+            if (firstSub.problems.length > 0) {
+              setActiveProblemId(firstSub.problems[0].id);
+            }
+            break;
+          }
         }
       }
     }
-  }, [topics]);
-
-  // Load progress from localStorage on mount
-  useEffect(() => {
-    const saved = localStorage.getItem("dsa_completed_problems");
-    if (saved) {
-      try {
-        setCompletedProblems(JSON.parse(saved));
-      } catch (e) {
-        console.error(e);
-      }
-    }
-  }, []);
+  }, [topics, urlProblemId, urlSubtopicId]);
 
   const toggleProblem = (id: string) => {
-    setCompletedProblems((prev) => {
-      const updated = { ...prev, [id]: !prev[id] };
-      localStorage.setItem("dsa_completed_problems", JSON.stringify(updated));
-      return updated;
-    });
+    toggleSheetProblem(id);
   };
 
   const toggleSubtopic = (id: string) => {
@@ -151,43 +206,131 @@ export default function PatternSheetPage() {
     return activeSubtopic.problems.find(p => p.id === activeProblemId) || activeSubtopic.problems[0];
   }, [activeSubtopic, activeProblemId]);
 
-  // Get active chat messages for the selected problem
-  const activeChatMessages = useMemo(() => {
-    if (!activeProblemId) return [];
-    return chatMessages[activeProblemId] || [
-      { role: "assistant", text: `Hello! Ask me anything about the problem "${activeProblem?.title || ''}". I can help you with the logic, edge cases, or complexity analysis.` }
-    ];
-  }, [chatMessages, activeProblemId, activeProblem]);
+  // Load chat history when activeProblemId changes
+  useEffect(() => {
+    if (!activeProblemId) {
+      setActiveChatMessages([]);
+      return;
+    }
 
-  const handleSendMessage = (textToSend?: string) => {
+    let isMounted = true;
+    const loadHistory = async () => {
+      // Start a fresh session ID by default
+      const newSid = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2);
+      setActiveSessionId(newSid);
+      setActiveChatMessages([
+        { role: "assistant", text: `Hello! Ask me anything about the problem "${activeProblem?.title || ''}". I can help you with the logic, edge cases, or complexity analysis.` }
+      ]);
+
+      const history = await getChatHistory({ problemId: activeProblemId });
+      if (!isMounted) return;
+      setAllHistoryMessages(history);
+    };
+
+    loadHistory();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [activeProblemId, activeProblem?.title, getChatHistory]);
+
+  const handleSendMessage = async (textToSend?: string) => {
     const msg = textToSend || inputMessage;
     if (!msg.trim() || !activeProblemId) return;
 
     const currentMsgs = activeChatMessages;
     const newMsgs = [...currentMsgs, { role: "user" as const, text: msg }];
     
-    setChatMessages(prev => ({
-      ...prev,
-      [activeProblemId]: newMsgs
-    }));
+    setActiveChatMessages(newMsgs);
     if (!textToSend) setInputMessage("");
 
-    // Simulate AI response
-    setTimeout(() => {
-      let reply = "";
-      if (msg.toLowerCase().includes("explain") || msg.toLowerCase().includes("approach")) {
-        reply = `To solve **${activeProblem?.title}**, we can follow this approach:\n\n1. **Core Strategy**: Utilize the ${activeSubtopic?.title} pattern.\n2. **Algorithm**: Maintain state variables to track our progress, iterating through the inputs.\n3. **Complexity**: Time Complexity is O(N) and Space Complexity is O(1).`;
-      } else if (msg.toLowerCase().includes("complexity") || msg.toLowerCase().includes("time")) {
-        reply = `For **${activeProblem?.title}**:\n- **Time Complexity**: Typically O(N) since we process each element a constant number of times.\n- **Space Complexity**: O(1) auxiliary space, as we are optimizing space usage inline.`;
-      } else {
-        reply = `I've analyzed your question about "${msg}" for **${activeProblem?.title}**. Let me know if you would like me to write a code snippet or trace through an example!`;
-      }
-      
-      setChatMessages(prev => ({
-        ...prev,
-        [activeProblemId]: [...newMsgs, { role: "assistant" as const, text: reply }]
+    // Save user message to database/localstorage
+    await saveChatMessage({ problemId: activeProblemId, role: "user", text: msg, sessionId: activeSessionId });
+
+    let actualPrompt = msg;
+    if (msg === "Explain Approach") {
+      actualPrompt = `Explain the optimal approach to solve "${activeProblem?.title}". Detail the main algorithm, data structures, and key steps.`;
+    } else if (msg === "Show Complexity") {
+      actualPrompt = `Detail the time and space complexity of the optimal approach to solve "${activeProblem?.title}". Explain why it has these complexities.`;
+    }
+
+    // Add temporary assistant thinking message
+    setActiveChatMessages([...newMsgs, { role: "assistant" as const, text: "Thinking..." }]);
+
+    try {
+      const formattedHistory = newMsgs.map(m => ({
+        role: m.role,
+        content: m.role === "user" && m.text === msg ? actualPrompt : m.text
       }));
-    }, 1000);
+
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: formattedHistory,
+          dayInfo: {
+            id: activeProblem?.id || activeProblemId,
+            topic: activeProblem?.title || "DSA Problem",
+            pattern: activeSubtopic?.title || "General"
+          },
+          apiKey: isMockMode ? profile.groqApiKey : undefined
+        })
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || "Failed to query AI assistant");
+      }
+
+      const reader = res.body?.getReader();
+      const decoder = new TextDecoder();
+      if (!reader) throw new Error("No reader available");
+
+      let streamedText = "";
+      let buffer = "";
+
+      // Clear the "Thinking..." text
+      setActiveChatMessages([...newMsgs, { role: "assistant" as const, text: "" }]);
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          const cleanLine = line.trim();
+          if (!cleanLine) continue;
+          if (cleanLine.startsWith("data: ")) {
+            const dataStr = cleanLine.slice(6).trim();
+            if (dataStr === "[DONE]") continue;
+            try {
+              const data = JSON.parse(dataStr);
+              const content = data.choices[0]?.delta?.content || "";
+              streamedText += content;
+              setActiveChatMessages([...newMsgs, { role: "assistant" as const, text: streamedText }]);
+            } catch {
+              // Ignore partial JSON parsing errors
+            }
+          }
+        }
+      }
+
+      // Save assistant message to database/localstorage when done
+      if (streamedText) {
+        await saveChatMessage({ problemId: activeProblemId, role: "assistant", text: streamedText, sessionId: activeSessionId });
+        getChatHistory({ problemId: activeProblemId }).then(history => {
+          setAllHistoryMessages(history);
+        });
+      }
+    } catch (err) {
+      setActiveChatMessages([
+        ...newMsgs,
+        { role: "assistant" as const, text: `Error: ${err instanceof Error ? err.message : "Could not reach assistant."} Please check your Groq API Key settings.` }
+      ]);
+    }
   };
 
   // Calculate statistics
@@ -628,21 +771,68 @@ export default function PatternSheetPage() {
       {isChatOpen && (
         <div className="fixed bottom-24 right-6 w-96 h-[500px] z-50 bg-surface border border-border rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in slide-in-from-bottom duration-300">
           {/* Header */}
-          <div className="p-4 border-b border-border flex items-center justify-between bg-gray-50/50">
+          <div className="p-4 border-b border-border flex items-center justify-between bg-gray-50/50 relative">
             <div className="flex items-center gap-2">
               <Sparkle weight="fill" className="text-focus w-5 h-5 animate-pulse" />
               <div>
                 <h3 className="font-bold text-sm text-text-primary">AI Study Assistant</h3>
-                <p className="text-[10px] text-text-secondary truncate max-w-[200px]">Discussing: {activeProblem?.title}</p>
+                <p className="text-[10px] text-text-secondary truncate max-w-[150px]">Discussing: {activeProblem?.title}</p>
               </div>
             </div>
-            <button
-              onClick={() => setIsChatOpen(false)}
-              className="p-1.5 hover:bg-paper rounded-lg transition-colors border border-border text-text-secondary hover:text-text-primary cursor-pointer"
-            >
-              <X className="w-4 h-4" />
-            </button>
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => setShowHistory(!showHistory)}
+                className="p-1 hover:bg-border rounded transition-colors cursor-pointer text-text-secondary hover:text-text-primary"
+                title="Chat History"
+              >
+                <Clock className="w-4 h-4" />
+              </button>
+              <button
+                onClick={handleStartNewSession}
+                className="p-1 hover:bg-border rounded transition-colors cursor-pointer text-text-secondary hover:text-text-primary"
+                title="New Chat Session"
+              >
+                <Plus className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => setIsChatOpen(false)}
+                className="p-1.5 hover:bg-paper rounded-lg transition-colors border border-border text-text-secondary hover:text-text-primary cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
           </div>
+
+          {/* Sessions History List Dropdown */}
+          {showHistory && (
+            <div className="border-b border-border bg-[#FAF7F0] divide-y divide-border/50 max-h-[150px] overflow-y-auto z-10 shrink-0">
+              <div className="px-4 py-2 text-[9px] font-bold text-text-secondary uppercase tracking-wider bg-paper/50 flex justify-between items-center">
+                <span>Recent Conversations</span>
+                <button 
+                  onClick={handleStartNewSession} 
+                  className="text-focus hover:underline flex items-center gap-1 cursor-pointer"
+                >
+                  <Plus className="w-2.5 h-2.5" /> New Session
+                </button>
+              </div>
+              {getSessionsList().length === 0 ? (
+                <div className="p-3 text-[10px] text-text-secondary text-center">No past conversations.</div>
+              ) : (
+                getSessionsList().map((session) => (
+                  <button
+                    key={session.sessionId}
+                    onClick={() => handleSelectSession(session.sessionId, session.messages)}
+                    className={`w-full text-left px-4 py-2 hover:bg-paper transition-colors text-[10px] flex flex-col gap-0.5 cursor-pointer ${
+                      activeSessionId === session.sessionId ? "bg-white font-semibold border-l-2 border-focus" : "text-text-primary"
+                    }`}
+                  >
+                    <span className="font-medium truncate">{session.title}</span>
+                    <span className="text-[8px] text-text-secondary">{session.date}</span>
+                  </button>
+                ))
+              )}
+            </div>
+          )}
 
           {/* Quick Action Suggestions */}
           <div className="px-4 py-2 border-b border-border/60 bg-paper/20 flex gap-1.5 overflow-x-auto scrollbar-none">
@@ -665,13 +855,17 @@ export default function PatternSheetPage() {
             {activeChatMessages.map((msg, i) => (
               <div
                 key={i}
-                className={`max-w-[85%] rounded-2xl p-3 text-xs whitespace-pre-line leading-relaxed ${
+                className={`max-w-[85%] rounded-2xl p-3 text-xs leading-relaxed ${
                   msg.role === "user"
                     ? "bg-focus text-white ml-auto"
                     : "bg-paper text-text-primary mr-auto border border-border"
                 }`}
               >
-                {msg.text}
+                {msg.role === "user" ? (
+                  <div className="whitespace-pre-line">{msg.text}</div>
+                ) : (
+                  <MarkdownRenderer content={msg.text} />
+                )}
               </div>
             ))}
           </div>
@@ -696,5 +890,17 @@ export default function PatternSheetPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function PatternSheetPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex items-center justify-center min-h-[50vh]">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-focus"></div>
+      </div>
+    }>
+      <PatternSheetPageContent />
+    </Suspense>
   );
 }

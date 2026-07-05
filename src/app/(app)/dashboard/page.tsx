@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
 import Link from "next/link";
+import { Day, Problem } from "@/types";
 import { useRouter } from "next/navigation";
 import {
   Fire,
@@ -37,13 +37,13 @@ export default function DashboardPage() {
   } = useSupabase();
 
   const getDayProgressPercentage = (dayId: number) => {
-    const day = days.find((d: any) => d.id === dayId);
+    const day = days.find((d: Day) => d.id === dayId);
     if (!day) return 0;
     const total = day.problems?.length || 0;
     if (total === 0) {
       return dayManualDone[dayId] ? 100 : 0;
     }
-    const solved = day.problems.filter((_: any, idx: number) => !!planProgress[`${dayId}_${idx}`]).length;
+    const solved = day.problems.filter((_: Problem, idx: number) => !!planProgress[`${dayId}_${idx}`]).length;
     return Math.round((solved / total) * 100);
   };
 
@@ -62,13 +62,13 @@ export default function DashboardPage() {
   const profileName = profile?.name ? profile.name.split(" ")[0] : "Learner";
 
   // 1. Total Completed Days
-  const completedDaysCount = days.filter((d: any) => getDayIsCompleted(d.id)).length;
+  const completedDaysCount = days.filter((d: Day) => getDayIsCompleted(d.id)).length;
 
   // 2. Total Problems Solved vs Total
   let totalProblemsCount = 0;
   let solvedProblemsCount = 0;
-  days.forEach((day: any) => {
-    day.problems?.forEach((_: any, idx: number) => {
+  days.forEach((day: Day) => {
+    day.problems?.forEach((_: Problem, idx: number) => {
       totalProblemsCount++;
       if (planProgress[`${day.id}_${idx}`]) {
         solvedProblemsCount++;
@@ -77,11 +77,11 @@ export default function DashboardPage() {
   });
 
   // 3. Current active day (first incomplete day)
-  const currentActiveDay = days.find((d: any) => !getDayIsCompleted(d.id)) || days[91];
+  const currentActiveDay = days.find((d: Day) => !getDayIsCompleted(d.id)) || days[91];
   const currentDayId = currentActiveDay ? currentActiveDay.id : 1;
 
   // 4. Carousel Days: Next 4 incomplete or unstarted days
-  const carouselDays = days.filter((d: any) => !getDayIsCompleted(d.id)).slice(0, 4);
+  const carouselDays = days.filter((d: Day) => !getDayIsCompleted(d.id)).slice(0, 4);
   // Fallback if all days are completed
   const displayCarouselDays = carouselDays.length > 0 ? carouselDays : days.slice(88);
 
@@ -89,13 +89,13 @@ export default function DashboardPage() {
   // If the active day has no problems (e.g. a review day), look for the next day with incomplete problems
   let activeProblemsDay = currentActiveDay;
   if (activeProblemsDay && (activeProblemsDay.problems?.length || 0) === 0) {
-    const nextWithProbs = days.find((d: any) => (d.problems?.length || 0) > 0 && !getDayIsCompleted(d.id));
+    const nextWithProbs = days.find((d: Day) => (d.problems?.length || 0) > 0 && !getDayIsCompleted(d.id));
     if (nextWithProbs) {
       activeProblemsDay = nextWithProbs;
     }
   }
 
-  const tableProblems: DashboardProblem[] = activeProblemsDay ? activeProblemsDay.problems.map((prob: any, idx: number) => ({
+  const tableProblems: DashboardProblem[] = activeProblemsDay ? activeProblemsDay.problems.map((prob: Problem, idx: number) => ({
     ...prob,
     dayId: activeProblemsDay.id,
     pattern: activeProblemsDay.pattern,
@@ -147,7 +147,7 @@ export default function DashboardPage() {
             <span className="text-[10px] text-gray-400 font-medium">92 Days</span>
           </div>
           <div className="grid grid-cols-23 gap-1 mt-2">
-            {days.map((day: any) => {
+            {days.map((day: Day) => {
               const percentage = getDayProgressPercentage(day.id);
               const bgColor = percentage === 100 
                 ? "bg-signal" 

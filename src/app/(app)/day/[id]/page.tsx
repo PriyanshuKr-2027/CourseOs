@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Day, Problem } from "@/data/mockDays";
+import { Day, Problem } from "@/types";
 import { getPatternBadgeStyle, getDifficultyStyle } from "@/lib/badgeStyle";
 import { useSupabase } from "@/components/providers/SupabaseProvider";
 import {
@@ -17,7 +17,10 @@ import {
   PaperPlaneRight,
   PlayCircle,
   YoutubeLogo,
+  Clock,
+  Plus
 } from "@phosphor-icons/react";
+import { MarkdownRenderer } from "@/components/layout/MarkdownRenderer";
 
 function getYoutubeId(url: string | null | undefined): string | null {
   if (!url) return null;
@@ -46,27 +49,93 @@ export default function DayDetailPage({ params }: { params: Promise<{ id: string
     toggleManualDayDone: providerToggleManualDayDone,
     saveDayNotes: providerSaveDayNotes,
     profile,
-    isMockMode
+    isMockMode,
+    getChatHistory,
+    saveChatMessage
   } = useSupabase();
 
   const [notesText, setNotesText] = React.useState("");
   const [activeProblemIndex, setActiveProblemIndex] = React.useState<number>(0);
-  const [lastLoadedDayId, setLastLoadedDayId] = React.useState<number | null>(null);
+  const day = days.find((d: Day) => d.id === dayId);
+
+  const [prevDayId, setPrevDayId] = React.useState<number | null>(null);
+  if (day && dayId !== prevDayId) {
+    setPrevDayId(dayId);
+    setNotesText(dayNotes[dayId] || "");
+    setActiveProblemIndex(0);
+  }
   
   const [chatMessages, setChatMessages] = React.useState<Message[]>([
     { role: "assistant", text: "Hello! Ask me anything about today's topic, problems, or notes. I can also summarize the video for you." }
   ]);
   const [inputMessage, setInputMessage] = React.useState("");
+  
+  // Chat session states
+  const [activeSessionId, setActiveSessionId] = React.useState<string>("");
+  const [showHistory, setShowHistory] = React.useState(false);
+  const [allHistoryMessages, setAllHistoryMessages] = React.useState<any[]>([]);
 
-  const day = days.find((d: any) => d.id === dayId);
+  // Function to initialize new session ID
+  const handleStartNewSession = () => {
+    const newSid = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2);
+    setActiveSessionId(newSid);
+    setChatMessages([
+      { role: "assistant", text: "Hello! Ask me anything about today's topic, problems, or notes. I can also summarize the video for you." }
+    ]);
+    setShowHistory(false);
+  };
+
+  // Helper to group allHistoryMessages by sessionId
+  const getSessionsList = () => {
+    const grouped: Record<string, any[]> = {};
+    allHistoryMessages.forEach(m => {
+      const sid = m.sessionId || "default";
+      if (!grouped[sid]) grouped[sid] = [];
+      grouped[sid].push(m);
+    });
+
+    return Object.entries(grouped).map(([sid, msgs]) => {
+      const firstUserMsg = msgs.find(m => m.role === "user")?.text || "Assistant Chat";
+      const date = msgs[0]?.createdAt ? new Date(msgs[0].createdAt).toLocaleDateString(undefined, {
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit"
+      }) : "Previous Session";
+      return {
+        sessionId: sid,
+        title: firstUserMsg,
+        messages: msgs,
+        date
+      };
+    }).reverse(); // Most recent first
+  };
+
+  const handleSelectSession = (sid: string, msgs: any[]) => {
+    setActiveSessionId(sid);
+    setChatMessages(msgs);
+    setShowHistory(false);
+  };
 
   React.useEffect(() => {
-    if (day && lastLoadedDayId !== dayId) {
-      setNotesText(dayNotes[dayId] || "");
-      setLastLoadedDayId(dayId);
-      setActiveProblemIndex(0);
-    }
-  }, [dayId, day, dayNotes, lastLoadedDayId]);
+    let isMounted = true;
+    const loadHistory = async () => {
+      // Start a fresh session ID by default
+      const newSid = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2);
+      setActiveSessionId(newSid);
+      setChatMessages([
+        { role: "assistant", text: "Hello! Ask me anything about today's topic, problems, or notes. I can also summarize the video for you." }
+      ]);
+
+      const history = await getChatHistory({ dayId });
+      if (!isMounted) return;
+      setAllHistoryMessages(history);
+    };
+    loadHistory();
+    return () => {
+      isMounted = false;
+    };
+  }, [dayId, getChatHistory]);
 
   if (providerLoading || !day) {
     return (
@@ -77,7 +146,7 @@ export default function DayDetailPage({ params }: { params: Promise<{ id: string
   }
 
   // Derive problems solved states
-  const problems: Problem[] = day.problems.map((prob: any, idx: number) => ({
+  const problems: Problem[] = day.problems.map((prob: Problem, idx: number) => ({
     ...prob,
     done: !!planProgress[`${dayId}_${idx}`]
   }));
@@ -104,6 +173,9 @@ export default function DayDetailPage({ params }: { params: Promise<{ id: string
     const newMsgs: Message[] = [...chatMessages, { role: "user", text: msg }];
     setChatMessages(newMsgs);
     if (!textToSend) setInputMessage("");
+
+    // Save user message to database/localstorage
+    await saveChatMessage({ dayId, role: "user", text: msg, sessionId: activeSessionId });
 
     // Setup helper message mappings for quick actions
     let actualPrompt = msg;
@@ -170,16 +242,24 @@ export default function DayDetailPage({ params }: { params: Promise<{ id: string
               const content = data.choices[0]?.delta?.content || "";
               streamedText += content;
               setChatMessages([...newMsgs, { role: "assistant", text: streamedText }]);
-            } catch (e) {
+            } catch {
               // Ignore partial JSON parsing errors
             }
           }
         }
       }
-    } catch (err: any) {
+
+      // Save assistant message to database/localstorage when done
+      if (streamedText) {
+        await saveChatMessage({ dayId, role: "assistant", text: streamedText, sessionId: activeSessionId });
+        getChatHistory({ dayId }).then(history => {
+          setAllHistoryMessages(history);
+        });
+      }
+    } catch (err) {
       setChatMessages([
         ...newMsgs,
-        { role: "assistant", text: `Error: ${err.message || "Could not reach assistant."} Please check your Groq API Key settings.` }
+        { role: "assistant", text: `Error: ${err instanceof Error ? err.message : "Could not reach assistant."} Please check your Groq API Key settings.` }
       ]);
     }
   };
@@ -381,10 +461,59 @@ export default function DayDetailPage({ params }: { params: Promise<{ id: string
 
         {/* Right Column (AI Panel) */}
         <div className="lg:col-span-5 bg-surface border border-border rounded-2xl flex flex-col h-[650px] shadow-sm overflow-hidden sticky top-24">
-          <div className="p-4 border-b border-border flex items-center gap-2 bg-gray-50/50">
-            <Sparkle weight="fill" className="text-focus w-5 h-5" />
-            <h2 className="font-bold text-sm">AI Study Assistant</h2>
+          <div className="p-4 border-b border-border flex items-center justify-between bg-gray-50/50 relative">
+            <div className="flex items-center gap-2">
+              <Sparkle weight="fill" className="text-focus w-5 h-5" />
+              <h2 className="font-bold text-sm">AI Study Assistant</h2>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowHistory(!showHistory)}
+                className="p-1.5 hover:bg-border rounded-lg transition-colors cursor-pointer text-text-secondary hover:text-text-primary"
+                title="Chat History"
+              >
+                <Clock className="w-4.5 h-4.5" />
+              </button>
+              <button
+                onClick={handleStartNewSession}
+                className="p-1.5 hover:bg-border rounded-lg transition-colors cursor-pointer text-text-secondary hover:text-text-primary"
+                title="New Chat Session"
+              >
+                <Plus className="w-4.5 h-4.5" />
+              </button>
+            </div>
           </div>
+
+          {/* Sessions History List Dropdown */}
+          {showHistory && (
+            <div className="border-b border-border bg-[#FAF7F0] divide-y divide-border/50 max-h-[200px] overflow-y-auto z-10">
+              <div className="px-4 py-2 text-[10px] font-bold text-text-secondary uppercase tracking-wider bg-paper/50 flex justify-between items-center">
+                <span>Recent Conversations</span>
+                <button 
+                  onClick={handleStartNewSession} 
+                  className="text-focus hover:underline flex items-center gap-1 cursor-pointer"
+                >
+                  <Plus className="w-3 h-3" /> New Session
+                </button>
+              </div>
+              {getSessionsList().length === 0 ? (
+                <div className="p-4 text-xs text-text-secondary text-center">No past conversations today.</div>
+              ) : (
+                getSessionsList().map((session) => (
+                  <button
+                    key={session.sessionId}
+                    onClick={() => handleSelectSession(session.sessionId, session.messages)}
+                    className={`w-full text-left px-4 py-2.5 hover:bg-paper transition-colors text-xs flex flex-col gap-0.5 cursor-pointer ${
+                      activeSessionId === session.sessionId ? "bg-white font-semibold border-l-2 border-focus" : "text-text-primary"
+                    }`}
+                  >
+                    <span className="font-medium truncate">{session.title}</span>
+                    <span className="text-[9px] text-text-secondary">{session.date}</span>
+                  </button>
+                ))
+              )}
+            </div>
+          )}
 
           {/* Quick Actions */}
           <div className="p-4 border-b border-border flex flex-wrap gap-2">
@@ -413,13 +542,27 @@ export default function DayDetailPage({ params }: { params: Promise<{ id: string
             {chatMessages.map((msg, i) => (
               <div
                 key={i}
-                className={`max-w-[85%] rounded-2xl p-3 text-sm whitespace-pre-line leading-relaxed ${
+                className={`max-w-[85%] rounded-2xl p-3 text-sm leading-relaxed ${
                   msg.role === "user"
                     ? "bg-focus text-white ml-auto"
                     : "bg-paper text-text-primary mr-auto border border-border"
                 }`}
               >
-                {msg.text}
+                {msg.role === "user" ? (
+                  <div className="whitespace-pre-line">{msg.text}</div>
+                ) : (
+                  <MarkdownRenderer 
+                    content={msg.text} 
+                    onInsertToNotes={(code) => {
+                      setNotesText(prev => {
+                        const newNotes = prev ? `${prev}\n\n${code}` : code;
+                        handleNotesChange(newNotes);
+                        return newNotes;
+                      });
+                      alert("Code block inserted into your personal notes!");
+                    }}
+                  />
+                )}
               </div>
             ))}
           </div>

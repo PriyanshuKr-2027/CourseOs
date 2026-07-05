@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { ShieldWarning } from "@phosphor-icons/react";
 import { useSupabase } from "@/components/providers/SupabaseProvider";
 import { resetAllData } from "@/lib/store";
+import { Profile } from "@/types";
 
 export default function SettingsPage() {
   const { profile, updateProfile, isMockMode, supabase, user } = useSupabase();
@@ -11,15 +12,17 @@ export default function SettingsPage() {
   const [email, setEmail] = useState("");
   const [darkMode, setDarkMode] = useState(false);
   const [reminders, setReminders] = useState(true);
+  const [groqApiKey, setGroqApiKey] = useState("");
 
-  useEffect(() => {
-    if (profile) {
-      setName(profile.name);
-      setEmail(profile.email);
-      setDarkMode(profile.darkMode);
-      setReminders(profile.reminders);
-    }
-  }, [profile]);
+  const [prevProfile, setPrevProfile] = useState<Profile | null>(null);
+  if (profile && profile !== prevProfile) {
+    setPrevProfile(profile);
+    setName(profile.name || "");
+    setEmail(profile.email || "");
+    setDarkMode(profile.darkMode || false);
+    setReminders(profile.reminders ?? true);
+    setGroqApiKey(profile.groqApiKey || "");
+  }
 
   const toggleDarkMode = () => {
     const updatedDarkMode = !darkMode;
@@ -35,7 +38,11 @@ export default function SettingsPage() {
   };
 
   const handleSave = () => {
-    updateProfile({ name, email });
+    if (groqApiKey && !groqApiKey.startsWith("gsk_")) {
+      alert("Invalid Groq API key. Keys typically start with 'gsk_'.");
+      return;
+    }
+    updateProfile({ name, email, groqApiKey });
     alert("Settings saved successfully!");
   };
 
@@ -68,7 +75,7 @@ export default function SettingsPage() {
 
       alert("Progress reset successfully!");
       window.location.reload();
-    } catch (e: any) {
+    } catch (e) {
       console.error(e);
       alert("Failed to reset progress. Please try again.");
     }
@@ -94,7 +101,7 @@ export default function SettingsPage() {
       await supabase.auth.signOut();
       alert("Account deleted successfully.");
       window.location.href = "/login";
-    } catch (e: any) {
+    } catch (e) {
       console.error(e);
       alert("Failed to delete account. Please try again.");
     }
@@ -140,6 +147,18 @@ export default function SettingsPage() {
               className="w-full px-4 py-2 rounded-lg bg-gray-100 border border-border focus:outline-none text-sm font-medium text-text-secondary cursor-not-allowed"
             />
           </div>
+        </div>
+
+        <div className="space-y-1.5">
+          <label className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Groq API Key</label>
+          <input
+            type="password"
+            placeholder="gsk_••••••••••••••••••••••••"
+            value={groqApiKey}
+            onChange={(e) => setGroqApiKey(e.target.value)}
+            className="w-full px-4 py-2 rounded-lg bg-paper border border-border focus:outline-none focus:ring-2 focus:ring-focus/20 text-sm font-medium font-mono"
+          />
+          <p className="text-[10px] text-text-secondary font-medium">Used to power your study assistant AI agent in day panels. Keys start with <code>gsk_</code>.</p>
         </div>
 
         <div className="flex justify-end pt-2">

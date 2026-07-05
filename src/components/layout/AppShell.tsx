@@ -1,10 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { getProfile, Profile } from "@/lib/store";
 import {
   SquaresFour,
   CalendarBlank,
@@ -28,7 +27,7 @@ import { SetupModal } from "@/components/layout/SetupModal";
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/dashboard", icon: SquaresFour },
   { label: "Day Plan", href: "/plan", icon: CalendarBlank },
-  { label: "Pattern Sheet", href: "/sheet", icon: Table },
+  { label: "Pattern Sheet", href: "/patterns", icon: Table },
   { label: "Problems", href: "/problems", icon: CodeBlock },
   { label: "Social", href: "/social", icon: Users },
   { label: "Notes", href: "/notes", icon: Note },

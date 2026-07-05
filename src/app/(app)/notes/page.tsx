@@ -1,29 +1,25 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { getPatternBadgeStyle } from "@/lib/badgeStyle";
 import { MagnifyingGlass, CalendarBlank } from "@phosphor-icons/react";
-import { getDayNotes, getNotesLastEdited, getCurriculumDays } from "@/lib/store";
+import { getNotesLastEdited } from "@/lib/store";
+import { useSupabase } from "@/components/providers/SupabaseProvider";
+import { Day } from "@/types";
 
 export default function NotesPage() {
   const [search, setSearch] = useState("");
-  const [allNotes, setAllNotes] = useState<Record<number, string>>({});
-  const [days, setDays] = useState<any[]>([]);
+  const { days, dayNotes } = useSupabase();
 
-  useEffect(() => {
-    setDays(getCurriculumDays());
-    setAllNotes(getDayNotes());
-  }, []);
-
-  const daysWithNotes = days.map((d: any) => {
-    const userNote = allNotes[d.id] || "";
+  const daysWithNotes = days.map((d: Day) => {
+    const userNote = dayNotes[d.id] || "";
     return {
       ...d,
       notes: userNote,
       lastEdited: getNotesLastEdited(d.id)
     };
-  }).filter((d: any) => d.notes.trim() !== "");
+  }).filter((d) => d.notes.trim() !== "");
 
   const filteredNotes = daysWithNotes.filter((day) => {
     return day.notes.toLowerCase().includes(search.toLowerCase()) ||

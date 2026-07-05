@@ -11,7 +11,7 @@ export async function proxy(request: NextRequest) {
     pathname.startsWith("/day") ||
     pathname.startsWith("/admin") ||
     pathname.startsWith("/plan") ||
-    pathname.startsWith("/sheet") ||
+    pathname.startsWith("/patterns") ||
     pathname.startsWith("/problems") ||
     pathname.startsWith("/social") ||
     pathname.startsWith("/notes") ||

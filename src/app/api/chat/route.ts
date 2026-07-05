@@ -111,7 +111,7 @@ Rules:
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        model: "llama-3.3-70b-specdec",
+        model: "llama-3.3-70b-versatile",
         messages: [
           { role: "system", content: systemPrompt },
           ...messages
@@ -123,8 +123,17 @@ Rules:
     if (!response.ok) {
       const errorText = await response.text();
       console.error("Groq API error response:", errorText);
+      let errMsg = response.statusText;
+      try {
+        const errJson = JSON.parse(errorText);
+        if (errJson.error?.message) {
+          errMsg = errJson.error.message;
+        }
+      } catch {
+        if (errorText) errMsg = errorText;
+      }
       return new Response(
-        JSON.stringify({ error: `Groq API Error: ${response.statusText}. Please verify your API Key.` }),
+        JSON.stringify({ error: `Groq API Error: ${errMsg}` }),
         {
           status: response.status,
           headers: { "Content-Type": "application/json" }

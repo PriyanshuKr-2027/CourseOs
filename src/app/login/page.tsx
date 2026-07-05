@@ -14,6 +14,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -31,7 +32,7 @@ export default function LoginPage() {
         if (signUpError) {
           setError(signUpError.message || "Sign up failed.");
         } else {
-          router.push("/dashboard");
+          setShowSuccessModal(true);
         }
       } else {
         const { error: signInError } = await signIn(email, password);
@@ -41,15 +42,15 @@ export default function LoginPage() {
           router.push("/dashboard");
         }
       }
-    } catch (err: any) {
-      setError(err.message || "An authentication error occurred.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "An authentication error occurred.");
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-paper flex items-center justify-center p-4">
+    <div className="min-h-screen bg-paper flex items-center justify-center p-4 relative">
       <div className="max-w-md w-full bg-surface border border-border rounded-2xl p-8 shadow-sm space-y-6">
         {/* Header */}
         <div className="text-center space-y-2">
@@ -74,8 +75,8 @@ export default function LoginPage() {
               const mockEmail = "learner@example.com";
               const { error: oAuthError } = await signIn(mockEmail, "password");
               if (oAuthError) setError(oAuthError.message);
-            } catch (err: any) {
-              setError(err.message);
+            } catch (err) {
+              setError(err instanceof Error ? err.message : "An unknown error occurred.");
             }
           }}
           className="w-full flex items-center justify-center gap-3 px-4 py-2.5 bg-paper hover:bg-border border border-border rounded-xl text-sm font-semibold transition-all disabled:opacity-50"
@@ -108,6 +109,7 @@ export default function LoginPage() {
                   placeholder="John Doe"
                   disabled={loading}
                   value={name}
+                  required={isSignUp}
                   onChange={(e) => { setName(e.target.value); setError(""); }}
                   className="w-full pl-11 pr-4 py-2.5 rounded-xl bg-paper border border-border focus:outline-none focus:ring-2 focus:ring-focus/20 text-sm font-medium"
                 />
@@ -124,6 +126,7 @@ export default function LoginPage() {
                 placeholder="you@example.com"
                 disabled={loading}
                 value={email}
+                required
                 onChange={(e) => { setEmail(e.target.value); setError(""); }}
                 className="w-full pl-11 pr-4 py-2.5 rounded-xl bg-paper border border-border focus:outline-none focus:ring-2 focus:ring-focus/20 text-sm font-medium"
               />
@@ -146,6 +149,7 @@ export default function LoginPage() {
                 placeholder="••••••••"
                 disabled={loading}
                 value={password}
+                required
                 onChange={(e) => { setPassword(e.target.value); setError(""); }}
                 className="w-full pl-11 pr-4 py-2.5 rounded-xl bg-paper border border-border focus:outline-none focus:ring-2 focus:ring-focus/20 text-sm font-medium"
               />
@@ -173,6 +177,35 @@ export default function LoginPage() {
           </button>
         </div>
       </div>
+
+      {/* Success Modal Popup */}
+      {showSuccessModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+          <div className="max-w-md w-full bg-surface border border-border rounded-2xl p-8 shadow-2xl space-y-6 text-center animate-in zoom-in-95 duration-200">
+            <div className="w-16 h-16 rounded-full bg-focus/10 flex items-center justify-center mx-auto text-focus">
+              <Envelope weight="fill" className="w-8 h-8" />
+            </div>
+            <div className="space-y-2">
+              <h2 className="text-xl font-bold text-text-primary">Verify your email</h2>
+              <p className="text-sm text-text-secondary leading-relaxed">
+                We've sent a verification link to <strong className="text-text-primary">{email}</strong>. Please check your inbox (and spam folder) to activate your account.
+              </p>
+            </div>
+            <button
+              onClick={() => {
+                setShowSuccessModal(false);
+                setIsSignUp(false); // switch back to sign-in view
+                setName("");
+                setEmail("");
+                setPassword("");
+              }}
+              className="w-full bg-[#1B1917] text-white py-3 rounded-xl font-semibold shadow-sm hover:opacity-90 transition-opacity cursor-pointer text-sm"
+            >
+              Okay, got it
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

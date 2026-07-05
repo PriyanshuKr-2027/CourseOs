@@ -272,6 +272,16 @@ export function resetAllData(): void {
   
   // Also clear completed pattern sheet problems
   localStorage.removeItem("dsa_completed_problems");
+
+  // Clear any chat histories in localStorage
+  const keysToRemove: string[] = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key && (key.startsWith("dsa_chat_day_") || key.startsWith("dsa_chat_problem_"))) {
+      keysToRemove.push(key);
+    }
+  }
+  keysToRemove.forEach(key => localStorage.removeItem(key));
   
   window.dispatchEvent(new Event("storage"));
 }

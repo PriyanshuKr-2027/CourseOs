@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useSupabase } from "@/components/providers/SupabaseProvider";
 import { 
   User, 
@@ -20,10 +20,20 @@ export function SetupModal() {
   const { profile, updateProfile, user } = useSupabase();
 
   // If setup is already completed, or user is not logged in, do not render
-  if (profile.hasCompletedSetup || !user) {
+  if (!profile || profile.hasCompletedSetup || !user) {
     return null;
   }
 
+  return (
+    <SetupModalContent
+      profile={profile}
+      updateProfile={updateProfile}
+      user={user}
+    />
+  );
+}
+
+function SetupModalContent({ profile, updateProfile, user }: { profile: any; updateProfile: any; user: any }) {
   const [step, setStep] = useState(1);
   const [name, setName] = useState(profile.name || "");
   const [dob, setDob] = useState(profile.dob || "");
@@ -33,6 +43,18 @@ export function SetupModal() {
   const [needHelp, setNeedHelp] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [hasInitialized, setHasInitialized] = useState(false);
+
+  // Auto-detect fields from profile when it asynchronously loads
+  useEffect(() => {
+    if (profile && !hasInitialized && profile.email !== "john.doe@example.com") {
+      setName(profile.name || "");
+      setDob(profile.dob || "");
+      setMobileNo(profile.mobileNo || "");
+      setGroqApiKey(profile.groqApiKey || "");
+      setHasInitialized(true);
+    }
+  }, [profile, hasInitialized]);
 
   const handleNextStep = (e: React.FormEvent) => {
     e.preventDefault();
@@ -48,10 +70,10 @@ export function SetupModal() {
       setError("Mobile number is required for profile verification and friend search.");
       return;
     }
-    // Simple mobile regex validation
+    // Strict 10-digit mobile check
     const cleanMobile = mobileNo.replace(/\D/g, "");
-    if (cleanMobile.length < 10) {
-      setError("Please enter a valid mobile number (at least 10 digits).");
+    if (cleanMobile.length !== 10) {
+      setError("Please enter a valid 10-digit mobile number.");
       return;
     }
 
@@ -98,16 +120,19 @@ export function SetupModal() {
         {/* Progress Tracker */}
         <div className="bg-[#FAF7F0] px-6 py-4 border-b border-border flex justify-between items-center">
           <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-focus animate-pulse"></span>
-            <span className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Account Onboarding</span>
+            <span className="font-bold text-xs uppercase tracking-wider text-text-secondary">Onboarding Setup</span>
           </div>
-          <span className="text-xs font-mono font-bold text-focus">Step {step} of 2</span>
+          <div className="flex gap-1.5">
+            <div className={`w-2 h-2 rounded-full transition-all duration-300 ${step === 1 ? "bg-focus w-6" : "bg-signal"}`} />
+            <div className={`w-2 h-2 rounded-full transition-all duration-300 ${step === 2 ? "bg-focus w-6" : "bg-border"}`} />
+          </div>
         </div>
 
-        <div className="p-6 space-y-6">
+        {/* Form Area */}
+        <div className="p-6 overflow-y-auto max-h-[500px]">
           {error && (
-            <div className="text-xs text-alert bg-alert/5 p-3.5 rounded-xl border border-alert/20 font-medium flex items-start gap-2">
-              <Warning weight="fill" className="w-4 h-4 shrink-0 text-alert mt-0.5" />
+            <div className="mb-4 text-xs text-alert bg-alert/5 p-3.5 rounded-xl border border-alert/20 font-semibold flex items-start gap-2.5">
+              <Warning className="w-4 h-4 shrink-0 mt-0.5" />
               <span>{error}</span>
             </div>
           )}
@@ -124,7 +149,7 @@ export function SetupModal() {
               >
                 <div className="space-y-2">
                   <h2 className="text-xl font-bold tracking-tight text-text-primary">Personal Details</h2>
-                  <p className="text-xs text-text-secondary">Please configure your basic details to build your learning profile.</p>
+                  <p className="text-xs text-text-secondary">Tell us a bit about yourself to customize your 92-Day DSA tracker.</p>
                 </div>
 
                 <div className="space-y-4">
@@ -164,9 +189,14 @@ export function SetupModal() {
                       <Phone className="absolute left-3.5 top-3 w-5 h-5 text-text-secondary" />
                       <input
                         type="tel"
-                        placeholder="+1 (555) 019-2834"
+                        placeholder="10-digit mobile number"
                         value={mobileNo}
-                        onChange={(e) => { setMobileNo(e.target.value); setError(""); }}
+                        maxLength={10}
+                        onChange={(e) => {
+                          const val = e.target.value.replace(/\D/g, "");
+                          setMobileNo(val);
+                          setError("");
+                        }}
                         className="w-full pl-11 pr-4 py-2.5 rounded-xl bg-paper border border-border focus:outline-none focus:ring-2 focus:ring-focus/20 text-sm font-medium text-text-primary"
                       />
                     </div>

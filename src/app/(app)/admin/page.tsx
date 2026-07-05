@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
 import { 
   Users, 
@@ -27,10 +27,11 @@ import {
 } from "@/lib/store";
 import { StreamChat } from "stream-chat";
 
-const STREAM_API_KEY = "mnmv54o3xeo4";
+const STREAM_API_KEY = process.env.NEXT_PUBLIC_STREAM_API_KEY || "mnmv54a3xea4";
 
 export default function AdminPage() {
   const [activeTab, setActiveTab] = useState<"users" | "chats" | "curriculum">("users");
+  const cleanupTimeoutRef = useRef<any>(null);
   const [users, setUsers] = useState<any[]>([]);
   const [days, setDays] = useState<any[]>([]);
   
@@ -67,6 +68,11 @@ export default function AdminPage() {
   // StreamChat Administration Client Connection
   useEffect(() => {
     if (activeTab !== "chats") return;
+
+    if (cleanupTimeoutRef.current) {
+      clearTimeout(cleanupTimeoutRef.current);
+      cleanupTimeoutRef.current = null;
+    }
     
     setIsChatConnecting(true);
     setChatError(null);
@@ -74,15 +80,29 @@ export default function AdminPage() {
 
     const initAdminChat = async () => {
       try {
-        const token = client.devToken("admin");
-        await client.connectUser(
-          {
-            id: "admin",
-            name: "System Administrator",
-            image: "https://api.dicebear.com/7.x/bottts/svg?seed=admin"
-          },
-          token
-        );
+        // Fetch token from server-side endpoint with client-side devToken fallback
+        const tokenRes = await fetch(`/api/stream-token?userId=admin`);
+        const tokenData = await tokenRes.json();
+        let token = tokenData.token;
+        if (!token) {
+          console.warn("STREAM_API_SECRET is not configured in .env.local. Falling back to devToken.");
+          token = client.devToken("admin");
+        }
+        
+        // Connect if not already connected/connecting to admin
+        if (client.userID !== "admin") {
+          if (client.userID) {
+            await client.disconnectUser();
+          }
+          await client.connectUser(
+            {
+              id: "admin",
+              name: "System Administrator",
+              image: "https://api.dicebear.com/7.x/bottts/svg?seed=admin"
+            },
+            token
+          );
+        }
         setChatClient(client);
 
         // Query all channels that contain admin (since users add admin to members)
@@ -112,16 +132,16 @@ export default function AdminPage() {
     initAdminChat();
 
     return () => {
-      const cleanup = async () => {
+      cleanupTimeoutRef.current = setTimeout(async () => {
         if (client) {
           try {
             await client.disconnectUser();
+            console.log("Admin chat client disconnected successfully");
           } catch (e) {
-            console.error(e);
+            console.error("Error disconnecting admin chat client:", e);
           }
         }
-      };
-      cleanup();
+      }, 500);
     };
   }, [activeTab]);
 
