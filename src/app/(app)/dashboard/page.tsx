@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect } from "react";
 import { Day, Problem } from "@/types";
 import { useRouter } from "next/navigation";
 import {
@@ -35,6 +36,13 @@ export default function DashboardPage() {
     loading: providerLoading, 
     toggleProblem 
   } = useSupabase();
+
+  // Redirect admin users to the admin overview page
+  useEffect(() => {
+    if (profile && profile.role === "admin") {
+      router.push("/admin");
+    }
+  }, [profile, router]);
 
   const getDayProgressPercentage = (dayId: number) => {
     const day = days.find((d: Day) => d.id === dayId);

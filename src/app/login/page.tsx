@@ -14,6 +14,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
 
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -33,7 +34,8 @@ export default function LoginPage() {
           setError(signUpResult.error.message || "Sign up failed.");
         } else {
           if (signUpResult.data?.session) {
-            router.push("/dashboard");
+            const isAdmin = email.toLowerCase().includes("admin") || email.toLowerCase() === "princekumot1307@gmail.com";
+            router.push(isAdmin ? "/admin" : "/dashboard");
           } else {
             setShowSuccessModal(true);
           }
@@ -43,7 +45,8 @@ export default function LoginPage() {
         if (signInError) {
           setError(signInError.message || "Invalid login credentials.");
         } else {
-          router.push("/dashboard");
+          const isAdmin = email.toLowerCase().includes("admin") || email.toLowerCase() === "princekumot1307@gmail.com";
+          router.push(isAdmin ? "/admin" : "/dashboard");
         }
       }
     } catch (err) {

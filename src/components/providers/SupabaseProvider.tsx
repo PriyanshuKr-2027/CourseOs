@@ -393,7 +393,7 @@ export function SupabaseProvider({ children }: { children: React.ReactNode }) {
       saveMockProfile(mockP);
       setProfile(mockP);
       setUser({ email } as User);
-      router.push("/dashboard");
+      router.push(isAdmin ? "/admin" : "/dashboard");
       return { error: null };
     }
     return await supabase!.auth.signInWithPassword({ email, password });
@@ -411,7 +411,7 @@ export function SupabaseProvider({ children }: { children: React.ReactNode }) {
       saveMockProfile(mockP);
       setProfile(mockP);
       setUser({ email } as User);
-      router.push("/dashboard");
+      router.push(email.toLowerCase().includes("admin") ? "/admin" : "/dashboard");
       return { 
         data: { 
           user: { email } as User, 

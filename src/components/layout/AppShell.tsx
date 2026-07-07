@@ -53,13 +53,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       .slice(0, 2) || "JD";
   };
 
-  const navItems = [
-    ...NAV_ITEMS,
-    ...(profile.role === "admin" ? [
-      { label: "Admin Overview", href: "/admin", icon: Shield },
-      { label: "Admin Content", href: "/admin/days", icon: Database }
-    ] : [])
-  ];
+  const navItems = profile.role === "admin"
+    ? [
+        { label: "Admin Overview", href: "/admin", icon: Shield },
+        { label: "Admin Content", href: "/admin/days", icon: Database }
+      ]
+    : NAV_ITEMS;
 
   return (
     <div className="flex min-h-screen bg-paper w-full">
