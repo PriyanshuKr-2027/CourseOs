@@ -18,7 +18,8 @@ import {
   Table,
   Users,
   Shield,
-  Database
+  Database,
+  Trophy
 } from "@phosphor-icons/react";
 
 import { useSupabase } from "@/components/providers/SupabaseProvider";
@@ -29,6 +30,7 @@ const NAV_ITEMS = [
   { label: "Day Plan", href: "/plan", icon: CalendarBlank },
   { label: "Pattern Sheet", href: "/problems", icon: Table },
   { label: "Social", href: "/social", icon: Users },
+  { label: "Leaderboard", href: "/leaderboard", icon: Trophy },
   { label: "Notes", href: "/notes", icon: Note },
 ];
 
