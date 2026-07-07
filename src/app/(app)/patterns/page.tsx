@@ -413,7 +413,7 @@ function PatternSheetPageContent() {
   }, [topics, search, selectedDifficulty, selectedStatus, completedProblems]);
 
   return (
-    <div className="max-w-7xl mx-auto space-y-8 pb-24 relative">
+    <div className="max-w-7xl mx-auto space-y-8 pb-20 relative">
       {/* Header */}
       <div className="space-y-2">
         <h1 className="text-3xl font-bold tracking-tight">Pattern-Wise DSA Sheet</h1>
@@ -582,7 +582,7 @@ function PatternSheetPageContent() {
           </div>
 
           {/* Topics Accordion List */}
-          <div className="space-y-4 overflow-y-auto" style={{maxHeight: 'calc(100vh - 22rem)'}}>
+          <div className="space-y-4">
             {filteredTopics.map((topic) => {
               let totalInTopic = 0;
               let solvedInTopic = 0;
@@ -769,7 +769,7 @@ function PatternSheetPageContent() {
 
       {/* Floating AI Chatbox Card */}
       {isChatOpen && (
-        <div className="fixed right-6 w-96 z-50 bg-surface border border-border rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in slide-in-from-bottom duration-300" style={{bottom: '5rem', maxHeight: 'calc(100vh - 8rem)'}}>
+        <div className="fixed bottom-24 right-6 w-96 h-[500px] z-50 bg-surface border border-border rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in slide-in-from-bottom duration-300">
           {/* Header */}
           <div className="p-4 border-b border-border flex items-center justify-between bg-gray-50/50 relative">
             <div className="flex items-center gap-2">

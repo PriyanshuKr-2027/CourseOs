@@ -62,8 +62,3 @@
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
-
-/* Custom grid for 92-day heatmap (23 columns × 4 rows) */
-.grid-cols-23 {
-  grid-template-columns: repeat(23, minmax(0, 1fr));
-}

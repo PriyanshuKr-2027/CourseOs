@@ -60,7 +60,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   ];
 
   return (
-    <div className="flex h-screen bg-paper w-full overflow-hidden">
+    <div className="flex min-h-screen bg-paper w-full">
       {/* Sidebar */}
       <aside 
         className={cn(
@@ -154,7 +154,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       {/* Main Content Area */}
       <div 
         className={cn(
-          "flex flex-col h-screen transition-all duration-300 ease-in-out overflow-hidden",
+          "flex-grow flex flex-col min-h-screen transition-all duration-300 ease-in-out",
           isCollapsed ? "pl-20" : "pl-64"
         )}
       >
@@ -166,18 +166,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               type="text"
               placeholder="Search problems or notes..."
               className="w-full pl-10 pr-4 py-2 rounded-full bg-surface border border-border focus:outline-none focus:ring-2 focus:ring-focus/20 transition-all text-sm"
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  const val = (e.target as HTMLInputElement).value.trim();
-                  if (val) window.location.href = `/plan?search=${encodeURIComponent(val)}`;
-                }
-              }}
             />
           </div>
 
           <div className="flex items-center gap-4">
             <button className="relative p-2 text-text-secondary hover:text-text-primary transition-colors">
               <Bell className="w-5 h-5" />
+              <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-alert rounded-full border-2 border-paper"></span>
             </button>
             <div className="w-px h-6 bg-border"></div>
             <button className="flex items-center gap-2 hover:opacity-80 transition-opacity">
@@ -191,7 +186,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </header>
 
         {/* Page Content */}
-        <main className="flex-1 overflow-y-auto p-8">
+        <main className="flex-1 p-8">
           {children}
         </main>
         <SetupModal />
