@@ -14,7 +14,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [showSuccessModal, setShowSuccessModal] = useState(false);
+
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -32,7 +32,7 @@ export default function LoginPage() {
         if (signUpError) {
           setError(signUpError.message || "Sign up failed.");
         } else {
-          setShowSuccessModal(true);
+          router.push("/dashboard");
         }
       } else {
         const { error: signInError } = await signIn(email, password);
@@ -178,34 +178,6 @@ export default function LoginPage() {
         </div>
       </div>
 
-      {/* Success Modal Popup */}
-      {showSuccessModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
-          <div className="max-w-md w-full bg-surface border border-border rounded-2xl p-8 shadow-2xl space-y-6 text-center animate-in zoom-in-95 duration-200">
-            <div className="w-16 h-16 rounded-full bg-focus/10 flex items-center justify-center mx-auto text-focus">
-              <Envelope weight="fill" className="w-8 h-8" />
-            </div>
-            <div className="space-y-2">
-              <h2 className="text-xl font-bold text-text-primary">Verify your email</h2>
-              <p className="text-sm text-text-secondary leading-relaxed">
-                We've sent a verification link to <strong className="text-text-primary">{email}</strong>. Please check your inbox (and spam folder) to activate your account.
-              </p>
-            </div>
-            <button
-              onClick={() => {
-                setShowSuccessModal(false);
-                setIsSignUp(false); // switch back to sign-in view
-                setName("");
-                setEmail("");
-                setPassword("");
-              }}
-              className="w-full bg-[#1B1917] text-white py-3 rounded-xl font-semibold shadow-sm hover:opacity-90 transition-opacity cursor-pointer text-sm"
-            >
-              Okay, got it
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
