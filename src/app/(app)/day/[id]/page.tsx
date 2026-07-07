@@ -56,6 +56,7 @@ export default function DayDetailPage({ params }: { params: Promise<{ id: string
 
   const [notesText, setNotesText] = React.useState("");
   const [activeProblemIndex, setActiveProblemIndex] = React.useState<number>(0);
+  const [lastSavedTime, setLastSavedTime] = React.useState<Date | null>(null);
   const day = days.find((d: Day) => d.id === dayId);
 
   const [prevDayId, setPrevDayId] = React.useState<number | null>(null);
@@ -164,6 +165,17 @@ export default function DayDetailPage({ params }: { params: Promise<{ id: string
   const handleNotesChange = (text: string) => {
     setNotesText(text);
     providerSaveDayNotes(dayId, text);
+    setLastSavedTime(new Date());
+  };
+
+  const formatSavedTime = (time: Date | null): string => {
+    if (!time) return "Not saved yet";
+    const diffSec = Math.floor((Date.now() - time.getTime()) / 1000);
+    if (diffSec < 5) return "Just now";
+    if (diffSec < 60) return `${diffSec}s ago`;
+    const diffMin = Math.floor(diffSec / 60);
+    if (diffMin < 60) return `${diffMin}m ago`;
+    return time.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   };
 
   const handleSendMessage = async (textToSend?: string) => {
@@ -443,7 +455,9 @@ export default function DayDetailPage({ params }: { params: Promise<{ id: string
           <section className="bg-surface border border-border rounded-2xl p-6 shadow-sm space-y-4">
             <div className="flex items-center justify-between">
               <h2 className="font-bold text-lg">Personal Notes</h2>
-              <span className="text-xs text-text-secondary">Autosaved · Just now</span>
+              <span className="text-xs text-text-secondary">
+                Autosaved · {lastSavedTime ? formatSavedTime(lastSavedTime) : "Not saved yet"}
+              </span>
             </div>
             <textarea
               value={notesText}

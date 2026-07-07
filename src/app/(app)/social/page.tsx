@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import {
   Users,
   VideoCamera,
@@ -10,20 +10,23 @@ import {
   Check,
   ChatCircle,
   MagnifyingGlass,
-  UserCheck
+  UserCheck,
+  PhoneSlash
 } from "@phosphor-icons/react";
 
 import { useSupabase } from "@/components/providers/SupabaseProvider";
+import { SupabaseClient, User } from "@supabase/supabase-js";
+import { Profile } from "@/types";
 
 // GetStream Client Imports
-import { StreamChat } from "stream-chat";
+import { StreamChat, Channel, ChannelData } from "stream-chat";
 import {
   Chat as StreamChatProvider,
   Channel as StreamChannelProvider,
   Window as StreamWindow,
   MessageList as StreamMessageList,
   MessageComposer as StreamMessageComposer,
-  ChannelHeader as StreamChannelHeader
+  MessageUI
 } from "stream-chat-react";
 
 import {
@@ -33,7 +36,9 @@ import {
   CallControls,
   SpeakerLayout,
   useCalls,
-  StreamTheme
+  useCallStateHooks,
+  StreamTheme,
+  CallingState
 } from "@stream-io/video-react-sdk";
 
 // Import styles (these will be loaded in Next.js)
@@ -68,8 +73,12 @@ export default function SocialPage() {
     let chatInstance: StreamChat | null = null;
     let videoInstance: StreamVideoClient | null = null;
 
-    setStreamConnected(false);
-    setStreamError(null);
+    Promise.resolve().then(() => {
+      if (isSubscribed) {
+        setStreamConnected(false);
+        setStreamError(null);
+      }
+    });
 
     const initStream = async () => {
       try {
@@ -115,10 +124,11 @@ export default function SocialPage() {
           setVideoClient(videoInstance);
           setStreamConnected(true);
         }
-      } catch (err: any) {
+      } catch (err: unknown) {
         console.error("Stream Connection Error:", err);
         if (isSubscribed) {
-          setStreamError(err.message || "Failed to connect to GetStream server.");
+          const errorMessage = err instanceof Error ? err.message : String(err);
+          setStreamError(errorMessage || "Failed to connect to GetStream server.");
         }
       }
     };
@@ -151,7 +161,7 @@ export default function SocialPage() {
         }
       }, 500);
     };
-  }, [user?.id, profile?.name]);
+  }, [user, profile?.name]);
 
   if (!streamConnected && !streamError) {
     return (
@@ -178,7 +188,7 @@ export default function SocialPage() {
     return (
       <StreamVideo client={videoClient}>
         <SocialWorkspaceContent {...workspaceProps} />
-        <GlobalCallOverlay videoClient={videoClient} />
+        <GlobalCallOverlay />
       </StreamVideo>
     );
   }
@@ -186,21 +196,39 @@ export default function SocialPage() {
   return <SocialWorkspaceContent {...workspaceProps} />;
 }
 
-function GlobalCallOverlay({ videoClient }: { videoClient: StreamVideoClient }) {
+function GlobalCallOverlay() {
   const calls = useCalls();
   const activeCall = calls.find(
-    (c) => c.state.callingState === "ringing" || c.state.callingState === "joined"
+    (c) =>
+      c.state.callingState === "ringing" ||
+      c.state.callingState === "joining" ||
+      c.state.callingState === "joined" ||
+      c.state.callingState === "reconnecting" ||
+      c.state.callingState === "migrating"
   );
+
+  const isLeavingRef = useRef(false);
+  const lastCallId = useRef<string | null>(null);
+
+  if (activeCall && activeCall.id !== lastCallId.current) {
+    isLeavingRef.current = false;
+    lastCallId.current = activeCall.id;
+  }
 
   if (!activeCall) return null;
 
-  const isRinging = activeCall.state.callingState === "ringing";
-  const isIncoming = isRinging && !activeCall.isCreatedByMe;
+  const callingState = activeCall.state.callingState;
+  const isIncoming = callingState === "ringing" && !activeCall.isCreatedByMe;
 
   const handleDecline = async () => {
+    if (isLeavingRef.current) return;
     try {
+      isLeavingRef.current = true;
+      // Fire event so the chat can log a missed call
+      window.dispatchEvent(new CustomEvent("call:declined", { detail: { callId: activeCall.id } }));
       await activeCall.leave({ reject: true });
     } catch (e) {
+      isLeavingRef.current = false;
       console.error("Error declining call:", e);
     }
   };
@@ -214,12 +242,15 @@ function GlobalCallOverlay({ videoClient }: { videoClient: StreamVideoClient }) 
   };
 
   const handleLeave = async () => {
+    if (isLeavingRef.current) return;
     try {
-      const state = activeCall.state.callingState;
-      if (state !== "left") {
+      const currentCallingState = activeCall.state.callingState as string;
+      if (currentCallingState !== "left") {
+        isLeavingRef.current = true;
         await activeCall.leave();
       }
     } catch (e) {
+      isLeavingRef.current = false;
       console.warn("Error leaving call:", e);
     }
   };
@@ -269,23 +300,105 @@ function GlobalCallOverlay({ videoClient }: { videoClient: StreamVideoClient }) 
         ) : (
           /* Active Call full-screen window */
           <StreamCall call={activeCall}>
-            <div className="flex-1 flex flex-col justify-between p-4 h-full">
-              <h4 className="text-center text-sm font-bold mt-2">
-                {isRinging
-                  ? `Calling...`
-                  : `Active Call`
-                }
-              </h4>
-              <div className="flex-grow flex flex-col items-center justify-center relative bg-gray-950 rounded-2xl overflow-hidden min-h-[400px] mt-4">
-                <SpeakerLayout />
-                <CallControls onLeave={handleLeave} />
-              </div>
-            </div>
+            <OutboundCallView callingState={callingState} handleLeave={handleLeave} />
           </StreamCall>
         )}
       </StreamTheme>
     </div>
   );
+}
+
+/**
+ * Rendered inside <StreamCall> so it can use SDK hooks.
+ * Shows a spinner until the remote participant actually joins,
+ * then switches to the full SpeakerLayout.
+ */
+function OutboundCallView({
+  callingState,
+  handleLeave
+}: {
+  callingState: string;
+  handleLeave: () => void;
+}) {
+  const { useParticipants } = useCallStateHooks();
+  const participants = useParticipants();
+  const remoteParticipants = participants.filter((p) => !p.isLocalParticipant);
+  const isWaitingForOthers = callingState === "joined" && remoteParticipants.length === 0;
+  const showLiveVideo = callingState === "joined" && !isWaitingForOthers;
+
+  const statusLabel =
+    callingState === "ringing" ? "Calling — Waiting for answer..."
+    : callingState === "joining" ? "Joining call..."
+    : callingState === "reconnecting" ? "Reconnecting..."
+    : callingState === "migrating" ? "Migrating call..."
+    : isWaitingForOthers ? "Waiting for the other party to join..."
+    : "Active Call";
+
+  const spinnerText =
+    callingState === "ringing" ? "Waiting for receiver to accept..."
+    : callingState === "joining" ? "Connecting to media stream..."
+    : callingState === "reconnecting" ? "Attempting to reconnect..."
+    : callingState === "migrating" ? "Switching connection..."
+    : "Waiting for receiver to join...";
+
+  return (
+    <div className="flex-1 flex flex-col justify-between p-4 h-full">
+      <h4 className="text-center text-sm font-bold mt-2">{statusLabel}</h4>
+      <div className="flex-grow flex flex-col relative bg-gray-950 rounded-2xl overflow-hidden min-h-[400px] mt-4">
+        {showLiveVideo ? (
+          <SpeakerLayout />
+        ) : (
+          <div className="flex-1 flex flex-col items-center justify-center gap-4 text-slate-400">
+            <div className="w-12 h-12 rounded-full border-4 border-focus border-t-transparent animate-spin"></div>
+            <p className="text-sm font-semibold">{spinnerText}</p>
+          </div>
+        )}
+        <div className="absolute bottom-0 left-0 right-0 flex justify-center pb-4">
+          <CallControls onLeave={handleLeave} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+interface DBUser {
+  id: string;
+  name: string;
+  email: string;
+  avatarUrl: string;
+}
+
+interface Friendship {
+  id: string;
+  sender_id: string;
+  receiver_id: string;
+  status: string;
+  created_at?: string;
+}
+
+interface GroupMember {
+  id: string;
+  name: string;
+  email: string;
+}
+
+interface GroupChat {
+  id: string;
+  name: string;
+  createdById: string;
+  members: string[];
+  memberDetails: GroupMember[];
+  avatarUrl: string;
+}
+
+interface SocialWorkspaceContentProps {
+  user: User | null;
+  profile: Profile | null;
+  supabase: SupabaseClient | null;
+  chatClient: StreamChat | null;
+  videoClient: StreamVideoClient | null;
+  streamConnected: boolean;
+  streamError: string | null;
 }
 
 function SocialWorkspaceContent({
@@ -296,12 +409,12 @@ function SocialWorkspaceContent({
   videoClient,
   streamConnected,
   streamError
-}: any) {
-  const [dbUsers, setDbUsers] = useState<any[]>([]);
-  const [friendships, setFriendships] = useState<any[]>([]);
-  const [groups, setGroups] = useState<any[]>([]);
-  const [activeFriend, setActiveFriend] = useState<any | null>(null);
-  const [activeGroup, setActiveGroup] = useState<any | null>(null);
+}: SocialWorkspaceContentProps) {
+  const [dbUsers, setDbUsers] = useState<DBUser[]>([]);
+  const [friendships, setFriendships] = useState<Friendship[]>([]);
+  const [groups, setGroups] = useState<GroupChat[]>([]);
+  const [activeFriend, setActiveFriend] = useState<DBUser | null>(null);
+  const [activeGroup, setActiveGroup] = useState<GroupChat | null>(null);
   const [activeTab, setActiveTab] = useState<"friends" | "requests" | "find">("friends");
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(true);
@@ -312,13 +425,21 @@ function SocialWorkspaceContent({
   const [selectedGroupMembers, setSelectedGroupMembers] = useState<string[]>([]);
 
   // Stream Client states
-  const [streamChannel, setStreamChannel] = useState<any>(null);
+  const [streamChannel, setStreamChannel] = useState<Channel | null>(null);
   
   // Online status presence mapping
   const [onlineUsers, setOnlineUsers] = useState<Record<string, boolean>>({});
 
+  // Call log tracking
+  const callStartTimeRef = useRef<number | null>(null);
+  const streamChannelRef = useRef<Channel | null>(null);
+  // Keep ref in sync with state so event handlers always have the latest channel
+  useEffect(() => {
+    streamChannelRef.current = streamChannel;
+  }, [streamChannel]);
+
   // Fetch social data from Supabase
-  const loadSocialData = async () => {
+  const loadSocialData = useCallback(async () => {
     if (!supabase || !user) return;
     try {
       // 1. Fetch all other users
@@ -329,12 +450,15 @@ function SocialWorkspaceContent({
 
       if (usersError) throw usersError;
 
-      const formattedUsers = (usersData || []).map((u: any) => ({
-        id: u.id,
-        name: u.name || u.email.split("@")[0],
-        email: u.email,
-        avatarUrl: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(u.email)}`
-      }));
+      const formattedUsers = (usersData || []).map((u) => {
+        const emailStr = u.email || "";
+        return {
+          id: u.id,
+          name: u.name || emailStr.split("@")[0] || "User",
+          email: emailStr,
+          avatarUrl: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(emailStr)}`
+        };
+      });
       setDbUsers(formattedUsers);
 
       // 2. Fetch friendships
@@ -355,7 +479,7 @@ function SocialWorkspaceContent({
       if (memberGroupsError) throw memberGroupsError;
 
       if (memberGroups && memberGroups.length > 0) {
-        const groupIds = memberGroups.map((mg: any) => mg.group_id);
+        const groupIds = memberGroups.map((mg) => mg.group_id);
 
         const { data: groupsData, error: groupsError } = await supabase
           .from("group_chats")
@@ -364,6 +488,16 @@ function SocialWorkspaceContent({
 
         if (groupsError) throw groupsError;
 
+        type DBGroupMemberRelation = {
+          group_id: string;
+          user_id: string;
+          profiles: {
+            id: string;
+            name: string | null;
+            email: string | null;
+          } | null;
+        };
+
         const { data: allMembers, error: membersError } = await supabase
           .from("group_members")
           .select("group_id, user_id, profiles(id, name, email)")
@@ -371,20 +505,25 @@ function SocialWorkspaceContent({
 
         if (membersError) throw membersError;
 
-        const formattedGroups = (groupsData || []).map((g: any) => {
-          const mInfos = (allMembers || [])
-            .filter((m: any) => m.group_id === g.id)
-            .map((m: any) => ({
-              id: m.user_id,
-              name: m.profiles?.name || m.profiles?.email?.split("@")[0] || "User",
-              email: m.profiles?.email || ""
-            }));
+        const membersList = (allMembers as unknown as DBGroupMemberRelation[]) || [];
+
+        const formattedGroups = (groupsData || []).map((g) => {
+          const mInfos = membersList
+            .filter((m) => m.group_id === g.id)
+            .map((m) => {
+              const emailStr = m.profiles?.email || "";
+              return {
+                id: m.user_id,
+                name: m.profiles?.name || emailStr.split("@")[0] || "User",
+                email: emailStr
+              };
+            });
 
           return {
             id: g.id,
             name: g.name,
             createdById: g.created_by,
-            members: mInfos.map((m: any) => m.id),
+            members: mInfos.map((m) => m.id),
             memberDetails: mInfos,
             avatarUrl: `https://api.dicebear.com/7.x/identicon/svg?seed=${encodeURIComponent(g.name)}`
           };
@@ -399,23 +538,29 @@ function SocialWorkspaceContent({
     } finally {
       setLoading(false);
     }
-  };
+  }, [supabase, user]);
 
   useEffect(() => {
     if (supabase && user) {
-      loadSocialData();
+      Promise.resolve().then(() => {
+        loadSocialData();
+      });
     }
-  }, [supabase, user]);
+  }, [supabase, user, loadSocialData]);
 
   // Handle active channel selection
   useEffect(() => {
     if (!chatClient || !user || !streamConnected) {
-      setStreamChannel(null);
+      if (streamChannel !== null) {
+        Promise.resolve().then(() => setStreamChannel(null));
+      }
       return;
     }
 
     if (!activeFriend && !activeGroup) {
-      setStreamChannel(null);
+      if (streamChannel !== null) {
+        Promise.resolve().then(() => setStreamChannel(null));
+      }
       return;
     }
 
@@ -431,7 +576,7 @@ function SocialWorkspaceContent({
           channel = chatClient.channel("messaging", {
             members: [user.id, activeFriend.id, "admin"],
             name: activeFriend.name
-          } as any);
+          } as ChannelData);
         } else if (activeGroup) {
           // Ensure all group members and admin are registered on Stream
           await Promise.all([
@@ -445,7 +590,7 @@ function SocialWorkspaceContent({
           channel = chatClient.channel("messaging", activeGroup.id, {
             members: [...activeGroup.members, "admin"],
             name: activeGroup.name
-          } as any);
+          } as ChannelData);
         }
         
         if (channel) {
@@ -458,7 +603,7 @@ function SocialWorkspaceContent({
     };
 
     initChannel();
-  }, [chatClient, user?.id, activeFriend?.id, activeGroup?.id, streamConnected]);
+  }, [chatClient, user, activeFriend, activeGroup, streamConnected, streamChannel]);
 
   // Derived lists
   const friends = useMemo(() => {
@@ -603,11 +748,29 @@ function SocialWorkspaceContent({
         setSelectedGroupMembers([]);
         await loadSocialData();
 
-        const formattedNewGroup = {
+        const membersList = [user.id, ...selectedGroupMembers];
+        const memberDetails = membersList.map((id) => {
+          if (id === user.id) {
+            return {
+              id: user.id,
+              name: profile?.name || user.email?.split("@")[0] || "User",
+              email: user.email || ""
+            };
+          }
+          const found = dbUsers.find((u) => u.id === id);
+          return {
+            id,
+            name: found?.name || "User",
+            email: found?.email || ""
+          };
+        });
+
+        const formattedNewGroup: GroupChat = {
           id: newGroup.id,
           name: newGroup.name,
           createdById: newGroup.created_by,
-          members: [user.id, ...selectedGroupMembers],
+          members: membersList,
+          memberDetails,
           avatarUrl: `https://api.dicebear.com/7.x/identicon/svg?seed=${encodeURIComponent(newGroup.name)}`
         };
         setActiveFriend(null);
@@ -647,6 +810,43 @@ function SocialWorkspaceContent({
     }
   };
 
+  // ── Helper: format seconds into e.g. "1m 23s" ──
+  const formatDuration = (seconds: number): string => {
+    if (seconds < 60) return `${seconds}s`;
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return s > 0 ? `${m}m ${s}s` : `${m}m`;
+  };
+
+  // ── Helper: post a call-log system message into the active channel ──
+  const postCallLog = useCallback(async (status: "missed" | "ended", durationSec?: number) => {
+    const ch = streamChannelRef.current;
+    if (!ch) return;
+    try {
+      const text =
+        status === "missed"
+          ? "📵 Video call — Not Received"
+          : `📹 Video call — ${formatDuration(durationSec ?? 0)}`;
+      await ch.sendMessage({
+        text,
+        // Custom fields stored on the message for rendering
+        call_log: true,
+        call_status: status,
+        call_duration_sec: durationSec ?? 0
+      } as Parameters<typeof ch.sendMessage>[0]);
+    } catch (e) {
+      console.error("Failed to post call log:", e);
+    }
+  }, []);
+
+  // ── Listen for call lifecycle events from GlobalCallOverlay ──
+  useEffect(() => {
+    // Incoming call declined by this user
+    const onDeclined = () => postCallLog("missed");
+    window.addEventListener("call:declined", onDeclined);
+    return () => window.removeEventListener("call:declined", onDeclined);
+  }, [postCallLog]);
+
   // Video Call Handlers
   const startCall = async () => {
     if (!user || !videoClient || (!activeFriend && !activeGroup)) return;
@@ -656,6 +856,7 @@ function SocialWorkspaceContent({
 
       const callInstance = videoClient.call("default", callId);
       
+      const groupMembers = activeGroup?.members || [];
       const members = activeFriend
         ? [
             { user_id: user.id, role: "admin" },
@@ -663,7 +864,7 @@ function SocialWorkspaceContent({
           ]
         : [
             { user_id: user.id, role: "admin" },
-            ...activeGroup.members.map((id: string) => ({ user_id: id, role: "user" }))
+            ...groupMembers.map((id) => ({ user_id: id, role: "user" }))
           ];
 
       await callInstance.getOrCreate({
@@ -671,6 +872,30 @@ function SocialWorkspaceContent({
         video: true,
         data: {
           members
+        }
+      });
+
+      // Record call start so we can compute duration on end
+      callStartTimeRef.current = Date.now();
+
+      // Listen for this call ending
+      const handleCallLeft = async () => {
+        const startedAt = callStartTimeRef.current;
+        callStartTimeRef.current = null;
+        const durationSec = startedAt ? Math.round((Date.now() - startedAt) / 1000) : 0;
+        // If the remote party never joined, treat as missed
+        const remoteParticipants = callInstance.state.participants.filter((p) => !p.isLocalParticipant);
+        if (remoteParticipants.length === 0 || durationSec < 2) {
+          await postCallLog("missed");
+        } else {
+          await postCallLog("ended", durationSec);
+        }
+      };
+
+      const subscription = callInstance.state.callingState$.subscribe((state) => {
+        if (state === CallingState.LEFT) {
+          handleCallLeft();
+          subscription.unsubscribe();
         }
       });
       
@@ -863,7 +1088,7 @@ function SocialWorkspaceContent({
                         <div className="text-left">
                           <p className="text-xs font-bold text-text-primary">{group.name}</p>
                           <p className="text-[10px] text-text-secondary font-mono truncate max-w-[140px]">
-                            {group.members.length} members
+                            {group.members.filter((id: string) => id !== "admin").length} members
                           </p>
                         </div>
                       </div>
@@ -1005,23 +1230,23 @@ function SocialWorkspaceContent({
               <div className="p-4 border-b border-border bg-gray-50/50 flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <img
-                    src={activeFriend ? activeFriend.avatarUrl : activeGroup.avatarUrl}
+                    src={activeFriend ? activeFriend.avatarUrl : activeGroup?.avatarUrl}
                     alt=""
                     className="w-10 h-10 rounded-full bg-white p-0.5 border border-border"
                   />
                   <div className="text-left max-w-[200px] sm:max-w-sm">
                     <h3 className="font-bold text-sm text-text-primary truncate">
-                      {activeFriend ? activeFriend.name : activeGroup.name}
+                      {activeFriend ? activeFriend.name : activeGroup?.name}
                     </h3>
                     <p className="text-[10px] text-text-secondary font-mono truncate">
                       {activeFriend 
                         ? activeFriend.email 
-                        : `${activeGroup.members.length} members: ${activeGroup.memberDetails?.map((m: any) => m.name).join(", ")}`
+                        : `${activeGroup?.members?.length || 0} members: ${activeGroup?.memberDetails?.map((m) => m.name).join(", ")}`
                       }
                     </p>
                   </div>
                 </div>
-
+ 
                 <div className="flex gap-2">
                   <button
                     onClick={startCall}
@@ -1040,7 +1265,7 @@ function SocialWorkspaceContent({
                   </button>
                 </div>
               </div>
-
+ 
               {/* Chat Message Workspace */}
               <div className="flex-1 flex flex-col bg-paper/20">
                 {streamConnected && chatClient && streamChannel ? (
@@ -1048,8 +1273,50 @@ function SocialWorkspaceContent({
                     <StreamChatProvider client={chatClient}>
                       <StreamChannelProvider channel={streamChannel}>
                         <StreamWindow>
-                          <StreamChannelHeader />
-                          <StreamMessageList />
+                          <StreamMessageList
+                            Message={(props: React.ComponentProps<typeof MessageUI>) => {
+                              const message = props?.message as (typeof props.message & {
+                                call_log?: boolean;
+                                call_status?: string;
+                                created_at?: string;
+                                call_duration_sec?: number;
+                              });
+                              // Guard: if message is missing or not a call-log, use default renderer
+                              if (!message || !message.call_log) {
+                                return <MessageUI {...props} />;
+                              }
+                              // Render call-log bubble
+                              const isMissed = message.call_status === "missed";
+                              const ts = new Date(message.created_at ?? "");
+                              const timeStr = ts.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+                              const dateStr = ts.toLocaleDateString([], { month: "short", day: "numeric" });
+                              return (
+                                <div className="flex justify-center my-2 px-4">
+                                  <div
+                                    className={`flex items-center gap-2 px-3.5 py-2 rounded-2xl border text-xs font-semibold shadow-sm ${
+                                      isMissed
+                                        ? "bg-red-50 border-red-200 text-red-600"
+                                        : "bg-emerald-50 border-emerald-200 text-emerald-700"
+                                    }`}
+                                  >
+                                    {isMissed ? (
+                                      <PhoneSlash weight="fill" className="w-3.5 h-3.5 shrink-0" />
+                                    ) : (
+                                      <VideoCamera weight="fill" className="w-3.5 h-3.5 shrink-0" />
+                                    )}
+                                    <span className="font-bold">
+                                      {isMissed
+                                        ? "Not Received"
+                                        : formatDuration(message.call_duration_sec ?? 0)}
+                                    </span>
+                                    <span className="text-[10px] opacity-60 font-normal">
+                                      {dateStr} · {timeStr}
+                                    </span>
+                                  </div>
+                                </div>
+                              );
+                            }}
+                          />
                           <StreamMessageComposer />
                         </StreamWindow>
                       </StreamChannelProvider>

@@ -5,47 +5,38 @@ import Link from "next/link";
 import { 
   Users, 
   ChatCircle, 
-  Database,
-  Shield,
-  SquaresFour,
-  CheckCircle,
-  PlayCircle,
-  PencilSimple,
-  Check,
+  Shield, 
+  CheckCircle, 
+  PlayCircle, 
+  Sparkle, 
+  MagnifyingGlass, 
+  ArrowSquareOut,
   Plus,
   Trash,
-  Sparkle,
-  ArrowRight,
-  MagnifyingGlass,
-  ArrowSquareOut
+  X
 } from "@phosphor-icons/react";
-import { 
-  getUserProgressList, 
-  getCurriculumDays, 
-  saveCurriculumDays,
-  getProfile
-} from "@/lib/store";
+import { getUserProgressList } from "@/lib/store";
+import { useSupabase } from "@/components/providers/SupabaseProvider";
 import { StreamChat } from "stream-chat";
 
 const STREAM_API_KEY = process.env.NEXT_PUBLIC_STREAM_API_KEY || "mnmv54a3xea4";
 
 export default function AdminPage() {
-  const [activeTab, setActiveTab] = useState<"users" | "chats" | "curriculum">("users");
+  const { supabase, isMockMode, createPortalUser, deletePortalUser, days, user: currentUser } = useSupabase();
+  const [activeTab, setActiveTab] = useState<"users" | "chats">("users");
   const cleanupTimeoutRef = useRef<any>(null);
-  const [users, setUsers] = useState<any[]>([]);
-  const [days, setDays] = useState<any[]>([]);
   
-  // Curriculum state
-  const [editingDayId, setEditingDayId] = useState<number | null>(null);
-  const [editTopic, setEditTopic] = useState("");
-  const [editPattern, setEditPattern] = useState("");
-  const [editYoutubeId, setEditYoutubeId] = useState("");
+  // Real or mock users progression
+  const [users, setUsers] = useState<any[]>([]);
+  const [loadingUsers, setLoadingUsers] = useState(false);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
 
-  // Playlist Mapping tool state
-  const [playlistUrl, setPlaylistUrl] = useState("");
-  const [isMapping, setIsMapping] = useState(false);
-  const [proposedMapping, setProposedMapping] = useState<any[]>([]);
-  const [mappingMessage, setMappingMessage] = useState("");
+  // Create User Modal state
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [newUserName, setNewUserName] = useState("");
+  const [newUserEmail, setNewUserEmail] = useState("");
+  const [newUserPassword, setNewUserPassword] = useState("");
+  const [isCreatingUser, setIsCreatingUser] = useState(false);
 
   // Real-time Chat Monitor state
   const [chatClient, setChatClient] = useState<StreamChat | null>(null);
@@ -55,15 +46,112 @@ export default function AdminPage() {
   const [isChatConnecting, setIsChatConnecting] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
 
-  // Search filters
+  // Search filter
   const [searchUser, setSearchUser] = useState("");
-  const [searchDay, setSearchDay] = useState("");
 
-  // Load Initial Data
+  // Load Users Progress Data (Real or Mock)
   useEffect(() => {
-    setUsers(getUserProgressList());
-    setDays(getCurriculumDays());
-  }, [activeTab]);
+    if (isMockMode) {
+      setUsers(getUserProgressList());
+      return;
+    }
+
+    const fetchRealUsers = async () => {
+      setLoadingUsers(true);
+      try {
+        // Fetch all profiles
+        const { data: profiles, error: profilesErr } = await supabase!
+          .from("profiles")
+          .select("*");
+        if (profilesErr) throw profilesErr;
+
+        // Fetch all progress (solved problems)
+        const { data: progress, error: progressErr } = await supabase!
+          .from("progress")
+          .select("user_id, problem_id");
+        if (progressErr) throw progressErr;
+
+        // Compute total problems from days
+        const totalProblems = days.reduce((sum, day) => sum + (day.problems?.length || 0), 0);
+
+        // Map database profiles to users table schema
+        const mappedUsers = (profiles || []).map(p => {
+          const userProgress = (progress || []).filter(pr => pr.user_id === p.id);
+          const solvedCount = userProgress.length;
+          const percentage = totalProblems > 0 ? Math.round((solvedCount / totalProblems) * 100) : 0;
+          const joinedDate = new Date(p.created_at).toLocaleDateString("en-US", {
+            month: "short",
+            day: "numeric",
+            year: "numeric"
+          });
+
+          return {
+            id: p.id,
+            name: p.name,
+            email: p.email,
+            role: p.role,
+            joinedDate,
+            lastActive: p.last_active_date || "—",
+            solvedCount,
+            totalProblems,
+            percentage,
+            avatarUrl: `https://api.dicebear.com/7.x/bottts/svg?seed=${p.name}`
+          };
+        });
+
+        setUsers(mappedUsers);
+      } catch (err) {
+        console.error("Error fetching real user data:", err);
+      } finally {
+        setLoadingUsers(false);
+      }
+    };
+
+    if (days.length > 0) {
+      fetchRealUsers();
+    }
+  }, [isMockMode, supabase, days, refreshTrigger]);
+
+  // Create User Handler
+  const handleCreateUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newUserEmail || !newUserPassword || !newUserName) return;
+
+    setIsCreatingUser(true);
+    try {
+      await createPortalUser(newUserEmail, newUserPassword, newUserName);
+      setShowCreateModal(false);
+      setNewUserName("");
+      setNewUserEmail("");
+      setNewUserPassword("");
+      setRefreshTrigger(prev => prev + 1);
+    } catch (err: any) {
+      alert(err.message || "Failed to create user.");
+    } finally {
+      setIsCreatingUser(false);
+    }
+  };
+
+  // Delete User Handler
+  const handleDeleteUser = async (userId: string, userName: string) => {
+    if (isMockMode) {
+      alert("User deletion is simulated in mock mode. Add Supabase keys to delete from real DB.");
+      return;
+    }
+    if (currentUser && currentUser.id === userId) {
+      alert("You cannot delete your own admin account.");
+      return;
+    }
+    if (!confirm(`Are you sure you want to permanently delete user "${userName}"? This will erase their profile and all problem-solving progress.`)) {
+      return;
+    }
+    try {
+      await deletePortalUser(userId);
+      setRefreshTrigger(prev => prev + 1);
+    } catch (err: any) {
+      alert(err.message || "Failed to delete user.");
+    }
+  };
 
   // StreamChat Administration Client Connection
   useEffect(() => {
@@ -80,7 +168,6 @@ export default function AdminPage() {
 
     const initAdminChat = async () => {
       try {
-        // Fetch token from server-side endpoint with client-side devToken fallback
         const tokenRes = await fetch(`/api/stream-token?userId=admin`);
         const tokenData = await tokenRes.json();
         let token = tokenData.token;
@@ -89,7 +176,6 @@ export default function AdminPage() {
           token = client.devToken("admin");
         }
         
-        // Connect if not already connected/connecting to admin
         if (client.userID !== "admin") {
           if (client.userID) {
             await client.disconnectUser();
@@ -105,7 +191,6 @@ export default function AdminPage() {
         }
         setChatClient(client);
 
-        // Query all channels that contain admin (since users add admin to members)
         const filter = { type: "messaging", members: { $in: ["admin"] } };
         const sort: any = { last_message_at: "desc" };
         const queriedChannels = await client.queryChannels(filter, sort, {
@@ -116,9 +201,7 @@ export default function AdminPage() {
         setChannels(queriedChannels);
         setIsChatConnecting(false);
 
-        // Listen for new messages globally in the client to update list
         client.on("message.new", (event) => {
-          // Refresh channels list
           client.queryChannels(filter, sort).then(setChannels);
         });
 
@@ -172,6 +255,7 @@ export default function AdminPage() {
     const total = users.length;
     const avgProgress = Math.round(users.reduce((sum, u) => sum + u.percentage, 0) / total);
     const active = users.filter(u => {
+      if (!u.lastActive || u.lastActive === "—") return false;
       const lastActiveDate = new Date(u.lastActive);
       const oneWeekAgo = new Date();
       oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
@@ -189,93 +273,6 @@ export default function AdminPage() {
     );
   }, [users, searchUser]);
 
-  const filteredDays = useMemo(() => {
-    return days.filter(d => 
-      d.topic.toLowerCase().includes(searchDay.toLowerCase()) ||
-      d.pattern.toLowerCase().includes(searchDay.toLowerCase()) ||
-      `day ${d.id}`.includes(searchDay.toLowerCase())
-    );
-  }, [days, searchDay]);
-
-  // Curriculum Editor Handlers
-  const handleEditStart = (day: any) => {
-    setEditingDayId(day.id);
-    setEditTopic(day.topic);
-    setEditPattern(day.pattern);
-    setEditYoutubeId(day.youtubeId);
-  };
-
-  const handleEditSave = (id: number) => {
-    const updatedDays = days.map(d => {
-      if (d.id === id) {
-        return {
-          ...d,
-          topic: editTopic,
-          pattern: editPattern,
-          youtubeId: editYoutubeId
-        };
-      }
-      return d;
-    });
-    setDays(updatedDays);
-    saveCurriculumDays(updatedDays);
-    setEditingDayId(null);
-  };
-
-  // Simulated Playlist Mapper
-  const handlePlaylistImport = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!playlistUrl) return;
-
-    setIsMapping(true);
-    setMappingMessage("");
-
-    // Simulate playlist retrieval
-    setTimeout(() => {
-      const simulatedVideos = [
-        { title: "Sliding Window Maximum - Hard", id: "DfljaUwZhs8", duration: "18 mins" },
-        { title: "Longest Repeating Character Replacement", id: "gqXU1UyA8pk", duration: "12 mins" },
-        { title: "Minimum Window Substring - Leetcode 76", id: "jSto0O4AJbM", duration: "25 mins" },
-        { title: "Permutation in String - Two Pointers", id: "UbyhOgBN834", duration: "10 mins" },
-        { title: "Subarray Product Less Than K", id: "SxtMxKyhkQ0", duration: "14 mins" }
-      ];
-
-      // Map them starting from day 15 onwards or matching topics
-      const mapping = days.slice(14, 19).map((day, idx) => ({
-        dayId: day.id,
-        topic: day.topic,
-        existingYoutubeId: day.youtubeId,
-        newYoutubeId: simulatedVideos[idx].id,
-        videoTitle: simulatedVideos[idx].title,
-        duration: simulatedVideos[idx].duration
-      }));
-
-      setProposedMapping(mapping);
-      setIsMapping(false);
-      setMappingMessage("Successfully parsed 5 videos. Review mapping below.");
-    }, 1500);
-  };
-
-  const handleApplyMapping = () => {
-    const updatedDays = days.map(day => {
-      const match = proposedMapping.find(m => m.dayId === day.id);
-      if (match) {
-        return {
-          ...day,
-          youtubeId: match.newYoutubeId
-        };
-      }
-      return day;
-    });
-
-    setDays(updatedDays);
-    saveCurriculumDays(updatedDays);
-    setProposedMapping([]);
-    setPlaylistUrl("");
-    setMappingMessage("Playlist video mappings applied successfully to curriculum database!");
-    setTimeout(() => setMappingMessage(""), 4000);
-  };
-
   return (
     <div className="max-w-6xl mx-auto space-y-8 pb-20">
       {/* Admin Title */}
@@ -284,15 +281,21 @@ export default function AdminPage() {
           <h1 className="text-3xl font-bold tracking-tight flex items-center gap-3">
             <Shield weight="fill" className="text-focus w-8 h-8" /> Administrator Console
           </h1>
-          <p className="text-text-secondary text-sm">Monitor user progression, audit real-time chat networks, and edit curriculum details.</p>
+          <p className="text-text-secondary text-sm">Monitor user progression, create/delete learner accounts, and audit real-time chat networks.</p>
         </div>
+        <button
+          onClick={() => setShowCreateModal(true)}
+          className="bg-focus text-white px-4 py-2 rounded-xl text-xs font-bold shadow-sm hover:opacity-90 transition-opacity flex items-center gap-1.5 cursor-pointer"
+        >
+          <Plus className="w-4 h-4" /> Create User
+        </button>
       </div>
 
       {/* Tabs Selector */}
-      <div className="flex border-b border-border bg-surface p-1 rounded-xl shadow-sm max-w-md">
+      <div className="flex border-b border-border bg-surface p-1 rounded-xl shadow-sm max-w-xs">
         <button
           onClick={() => setActiveTab("users")}
-          className={`flex-1 py-2.5 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-2 ${
+          className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-2 cursor-pointer ${
             activeTab === "users"
               ? "bg-focus text-white shadow-sm"
               : "text-text-secondary hover:text-text-primary"
@@ -302,23 +305,13 @@ export default function AdminPage() {
         </button>
         <button
           onClick={() => setActiveTab("chats")}
-          className={`flex-1 py-2.5 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-2 ${
+          className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-2 cursor-pointer ${
             activeTab === "chats"
               ? "bg-focus text-white shadow-sm"
               : "text-text-secondary hover:text-text-primary"
           }`}
         >
           <ChatCircle className="w-4 h-4" /> Chat Monitor
-        </button>
-        <button
-          onClick={() => setActiveTab("curriculum")}
-          className={`flex-1 py-2.5 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-2 ${
-            activeTab === "curriculum"
-              ? "bg-focus text-white shadow-sm"
-              : "text-text-secondary hover:text-text-primary"
-          }`}
-        >
-          <Database className="w-4 h-4" /> Curriculum Editor
         </button>
       </div>
 
@@ -365,7 +358,7 @@ export default function AdminPage() {
                 <MagnifyingGlass className="absolute left-3 top-2.5 w-4 h-4 text-text-secondary" />
                 <input
                   type="text"
-                  placeholder="Search users..."
+                  placeholder="Search users by name/email..."
                   value={searchUser}
                   onChange={(e) => setSearchUser(e.target.value)}
                   className="w-full pl-9 pr-4 py-2 rounded-lg bg-paper border border-border focus:outline-none focus:ring-2 focus:ring-focus/20 text-xs"
@@ -382,51 +375,76 @@ export default function AdminPage() {
                     <th className="px-6 py-4 text-xs font-bold text-text-secondary uppercase">Joined Date</th>
                     <th className="px-6 py-4 text-xs font-bold text-text-secondary uppercase">Last Active</th>
                     <th className="px-6 py-4 text-xs font-bold text-text-secondary uppercase">Progress</th>
-                    <th className="px-6 py-4 text-xs font-bold text-text-secondary uppercase w-24">Actions</th>
+                    <th className="px-6 py-4 text-xs font-bold text-text-secondary uppercase w-36 text-center">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border text-sm">
-                  {filteredUsers.map((user) => (
-                    <tr key={user.id} className="hover:bg-paper/20 transition-all">
-                      <td className="px-6 py-4 flex items-center gap-3">
-                        <img src={user.avatarUrl} alt="" className="w-9 h-9 rounded-full bg-paper p-0.5 border border-border" />
-                        <div>
-                          <p className="font-bold text-text-primary">{user.name}</p>
-                          <p className="text-xs text-text-secondary font-mono">{user.email}</p>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold capitalize border ${
-                          user.role === "admin" 
-                            ? "bg-focus/10 border-focus/20 text-focus" 
-                            : "bg-gray-100 border-border text-text-secondary"
-                        }`}>
-                          {user.role}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-text-secondary text-xs">{user.joinedDate}</td>
-                      <td className="px-6 py-4 text-text-secondary text-xs font-mono">{user.lastActive}</td>
-                      <td className="px-6 py-4">
-                        <div className="space-y-1 max-w-[200px]">
-                          <div className="flex justify-between text-xs font-bold">
-                            <span>{user.percentage}%</span>
-                            <span className="text-text-secondary font-mono">{user.solvedCount}/{user.totalProblems}</span>
-                          </div>
-                          <div className="w-full bg-gray-100 h-1.5 rounded-full overflow-hidden">
-                            <div className="bg-signal h-full rounded-full" style={{ width: `${user.percentage}%` }}></div>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <Link
-                          href={`/admin/users/${user.id}`}
-                          className="px-3 py-1.5 bg-paper hover:bg-border text-text-primary text-xs font-semibold rounded-lg border border-border transition-all flex items-center gap-1 w-fit"
-                        >
-                          View Plan <ArrowSquareOut className="w-3.5 h-3.5" />
-                        </Link>
+                  {loadingUsers ? (
+                    <tr>
+                      <td colSpan={6} className="text-center py-12 text-xs text-text-secondary">
+                        Loading database users progress...
                       </td>
                     </tr>
-                  ))}
+                  ) : filteredUsers.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="text-center py-12 text-xs text-text-secondary">
+                        No registered users found.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredUsers.map((user) => (
+                      <tr key={user.id} className="hover:bg-paper/20 transition-all">
+                        <td className="px-6 py-4 flex items-center gap-3">
+                          <img src={user.avatarUrl} alt="" className="w-9 h-9 rounded-full bg-paper p-0.5 border border-border" />
+                          <div>
+                            <p className="font-bold text-text-primary">{user.name}</p>
+                            <p className="text-xs text-text-secondary font-mono">{user.email}</p>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold capitalize border ${
+                            user.role === "admin" 
+                              ? "bg-focus/10 border-focus/20 text-focus" 
+                              : "bg-gray-100 border-border text-text-secondary"
+                          }`}>
+                            {user.role}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-text-secondary text-xs">{user.joinedDate}</td>
+                        <td className="px-6 py-4 text-text-secondary text-xs font-mono">{user.lastActive}</td>
+                        <td className="px-6 py-4">
+                          <div className="space-y-1 max-w-[200px]">
+                            <div className="flex justify-between text-xs font-bold">
+                              <span>{user.percentage}%</span>
+                              <span className="text-text-secondary font-mono">{user.solvedCount}/{user.totalProblems}</span>
+                            </div>
+                            <div className="w-full bg-gray-100 h-1.5 rounded-full overflow-hidden">
+                              <div className="bg-signal h-full rounded-full" style={{ width: `${user.percentage}%` }}></div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="flex items-center justify-center gap-2">
+                            <Link
+                              href={`/admin/users/${user.id}`}
+                              className="px-2.5 py-1.5 bg-paper hover:bg-border text-text-primary text-xs font-semibold rounded-lg border border-border transition-all flex items-center gap-1 shrink-0"
+                            >
+                              View <ArrowSquareOut className="w-3.5 h-3.5" />
+                            </Link>
+                            {user.role !== "admin" && (
+                              <button
+                                onClick={() => handleDeleteUser(user.id, user.name)}
+                                className="p-2 text-text-secondary hover:text-alert bg-paper hover:bg-alert/5 border border-border hover:border-alert/20 rounded-lg transition-all cursor-pointer"
+                                title="Delete User Account"
+                              >
+                                <Trash className="w-4 h-4" />
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>
@@ -461,7 +479,6 @@ export default function AdminPage() {
                 channels.map((chan) => {
                   const channelName = chan.data?.name || chan.id;
                   const lastMessage = chan.state.messages[chan.state.messages.length - 1];
-                  const membersCount = Object.keys(chan.state.members).length;
                   const filteredMembers = Object.values(chan.state.members)
                     .map((m: any) => m.user?.name || m.user_id)
                     .filter((name) => name !== "System Administrator" && name !== "admin");
@@ -549,187 +566,74 @@ export default function AdminPage() {
         </div>
       )}
 
-      {/* TAB 3: CURRICULUM EDITOR */}
-      {activeTab === "curriculum" && (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-          {/* Days Grid (Left) */}
-          <div className="lg:col-span-8 bg-surface border border-border rounded-2xl shadow-sm overflow-hidden">
-            <div className="p-5 border-b border-border flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <h3 className="font-bold text-sm">92-Day Curriculum Details Editor</h3>
-              <div className="relative max-w-xs w-full">
-                <MagnifyingGlass className="absolute left-3 top-2.5 w-4 h-4 text-text-secondary" />
-                <input
-                  type="text"
-                  placeholder="Search topic or pattern..."
-                  value={searchDay}
-                  onChange={(e) => setSearchDay(e.target.value)}
-                  className="w-full pl-9 pr-4 py-2 rounded-lg bg-paper border border-border focus:outline-none focus:ring-2 focus:ring-focus/20 text-xs"
-                />
-              </div>
-            </div>
-
-            <div className="overflow-y-auto max-h-[600px]">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="border-b border-border bg-gray-50/50 sticky top-0 z-10">
-                    <th className="px-4 py-3 text-xs font-bold text-text-secondary uppercase w-16">Day</th>
-                    <th className="px-4 py-3 text-xs font-bold text-text-secondary uppercase w-32">Pattern</th>
-                    <th className="px-4 py-3 text-xs font-bold text-text-secondary uppercase">Topic</th>
-                    <th className="px-4 py-3 text-xs font-bold text-text-secondary uppercase w-32">YouTube ID</th>
-                    <th className="px-4 py-3 text-xs font-bold text-text-secondary uppercase w-20">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border text-xs">
-                  {filteredDays.map((day) => {
-                    const isEditing = editingDayId === day.id;
-                    return (
-                      <tr key={day.id} className="hover:bg-paper/10 transition-colors">
-                        <td className="px-4 py-3 font-mono font-bold">#{day.id}</td>
-                        <td className="px-4 py-3">
-                          {isEditing ? (
-                            <input
-                              type="text"
-                              value={editPattern}
-                              onChange={(e) => setEditPattern(e.target.value)}
-                              className="w-full px-2 py-1 rounded border border-border text-xs font-medium focus:ring-2 focus:ring-focus/25 focus:outline-none"
-                            />
-                          ) : (
-                            <span className="px-2 py-0.5 bg-paper rounded border border-border font-medium text-text-secondary">
-                              {day.pattern}
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 font-medium">
-                          {isEditing ? (
-                            <input
-                              type="text"
-                              value={editTopic}
-                              onChange={(e) => setEditTopic(e.target.value)}
-                              className="w-full px-2 py-1 rounded border border-border text-xs font-medium focus:ring-2 focus:ring-focus/25 focus:outline-none"
-                            />
-                          ) : (
-                            day.topic
-                          )}
-                        </td>
-                        <td className="px-4 py-3 font-mono">
-                          {isEditing ? (
-                            <input
-                              type="text"
-                              value={editYoutubeId}
-                              onChange={(e) => setEditYoutubeId(e.target.value)}
-                              className="w-full px-2 py-1 rounded border border-border text-xs font-mono focus:ring-2 focus:ring-focus/25 focus:outline-none"
-                            />
-                          ) : (
-                            day.youtubeId || "—"
-                          )}
-                        </td>
-                        <td className="px-4 py-3">
-                          {isEditing ? (
-                            <button
-                              onClick={() => handleEditSave(day.id)}
-                              className="p-1.5 bg-signal text-white rounded hover:opacity-90 transition-all flex items-center justify-center"
-                              title="Save Day Details"
-                            >
-                              <Check className="w-4 h-4" />
-                            </button>
-                          ) : (
-                            <button
-                              onClick={() => handleEditStart(day)}
-                              className="p-1.5 bg-paper hover:bg-border rounded border border-border text-text-secondary hover:text-focus transition-all flex items-center justify-center"
-                              title="Edit Day Details"
-                            >
-                              <PencilSimple className="w-4 h-4" />
-                            </button>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          {/* Playlist Mapping Tool (Right) */}
-          <div className="lg:col-span-4 bg-surface border border-border rounded-2xl shadow-sm p-5 space-y-6">
-            <div className="space-y-1.5">
-              <h3 className="font-bold text-sm flex items-center gap-1.5">
-                <Database className="text-focus w-4.5 h-4.5" /> Playlist Mapping Tool
+      {/* CREATE USER MODAL */}
+      {showCreateModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-surface border border-border w-full max-w-md p-6 rounded-2xl shadow-xl space-y-5 animate-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between border-b border-border pb-3.5">
+              <h3 className="font-bold text-base flex items-center gap-2">
+                <Users weight="fill" className="text-focus w-5 h-5" /> Create New Learner Account
               </h3>
-              <p className="text-xs text-text-secondary leading-relaxed">
-                Paste a YouTube playlist URL to parse and map video IDs to sequential study days.
-              </p>
+              <button 
+                onClick={() => setShowCreateModal(false)}
+                className="p-1 text-text-secondary hover:text-text-primary hover:bg-black/5 rounded-lg transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
             </div>
 
-            <form onSubmit={handlePlaylistImport} className="space-y-3">
+            <form onSubmit={handleCreateUser} className="space-y-4">
               <div className="space-y-1">
-                <label className="text-[10px] uppercase font-bold text-text-secondary tracking-wider">YouTube Playlist URL</label>
+                <label className="text-[10px] uppercase font-bold text-text-secondary tracking-wider">Full Name</label>
                 <input
                   type="text"
-                  placeholder="https://www.youtube.com/playlist?list=..."
-                  value={playlistUrl}
-                  onChange={(e) => setPlaylistUrl(e.target.value)}
-                  className="w-full px-3 py-2 rounded-lg bg-paper border border-border text-xs focus:ring-2 focus:ring-focus/20 focus:outline-none"
+                  required
+                  placeholder="e.g. Prince Kumot"
+                  value={newUserName}
+                  onChange={(e) => setNewUserName(e.target.value)}
+                  className="w-full px-3 py-2 text-xs rounded-lg bg-paper border border-border focus:ring-2 focus:ring-focus/20 focus:outline-none"
                 />
               </div>
-              
+
+              <div className="space-y-1">
+                <label className="text-[10px] uppercase font-bold text-text-secondary tracking-wider">Email Address</label>
+                <input
+                  type="email"
+                  required
+                  placeholder="e.g. prince@example.com"
+                  value={newUserEmail}
+                  onChange={(e) => setNewUserEmail(e.target.value)}
+                  className="w-full px-3 py-2 text-xs rounded-lg bg-paper border border-border focus:ring-2 focus:ring-focus/20 focus:outline-none font-mono"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[10px] uppercase font-bold text-text-secondary tracking-wider">Account Password</label>
+                <input
+                  type="password"
+                  required
+                  placeholder="Minimum 6 characters"
+                  value={newUserPassword}
+                  onChange={(e) => setNewUserPassword(e.target.value)}
+                  className="w-full px-3 py-2 text-xs rounded-lg bg-paper border border-border focus:ring-2 focus:ring-focus/20 focus:outline-none font-mono"
+                />
+              </div>
+
               <button
                 type="submit"
-                disabled={isMapping || !playlistUrl}
-                className="w-full py-2 bg-focus text-white rounded-lg text-xs font-bold shadow-sm hover:opacity-90 disabled:opacity-50 transition-all flex items-center justify-center gap-1.5"
+                disabled={isCreatingUser}
+                className="w-full py-2.5 bg-focus text-white font-bold rounded-lg text-xs hover:opacity-90 disabled:opacity-50 transition-opacity flex items-center justify-center gap-1.5 cursor-pointer mt-2"
               >
-                {isMapping ? (
+                {isCreatingUser ? (
                   <>
                     <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                    Parsing Playlist...
+                    Creating Account...
                   </>
                 ) : (
-                  <>
-                    Process Playlist
-                  </>
+                  <>Create Account</>
                 )}
               </button>
             </form>
-
-            {mappingMessage && (
-              <div className="p-3 bg-focus/5 text-[11px] text-focus font-bold rounded-lg border border-focus/15 flex items-center gap-2">
-                <Sparkle weight="fill" className="w-4 h-4 text-focus shrink-0 animate-pulse" />
-                <span>{mappingMessage}</span>
-              </div>
-            )}
-
-            {/* Proposed Mapping Table */}
-            {proposedMapping.length > 0 && (
-              <div className="space-y-3.5 pt-2 border-t border-border animate-in fade-in slide-in-from-top-2 duration-300">
-                <h4 className="text-xs font-bold text-text-primary">Review Proposed Day Mapping</h4>
-                <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
-                  {proposedMapping.map((map) => (
-                    <div key={map.dayId} className="p-2.5 bg-paper rounded-lg border border-border text-[10px] space-y-1">
-                      <div className="flex justify-between font-bold text-text-primary">
-                        <span>Day #{map.dayId}</span>
-                        <span className="font-mono text-text-secondary">{map.existingYoutubeId || "None"} &rarr; {map.newYoutubeId}</span>
-                      </div>
-                      <p className="text-text-secondary truncate">{map.videoTitle}</p>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="flex gap-2">
-                  <button
-                    onClick={handleApplyMapping}
-                    className="flex-1 py-2 bg-signal text-white rounded-lg text-xs font-bold hover:opacity-90 transition-opacity"
-                  >
-                    Apply Mapping
-                  </button>
-                  <button
-                    onClick={() => setProposedMapping([])}
-                    className="px-3 py-2 border border-border text-text-secondary hover:bg-paper rounded-lg text-xs font-bold"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            )}
           </div>
         </div>
       )}

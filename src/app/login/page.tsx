@@ -28,11 +28,15 @@ export default function LoginPage() {
 
     try {
       if (isSignUp) {
-        const { error: signUpError } = await signUp(email, password, name);
-        if (signUpError) {
-          setError(signUpError.message || "Sign up failed.");
+        const signUpResult = await signUp(email, password, name);
+        if (signUpResult.error) {
+          setError(signUpResult.error.message || "Sign up failed.");
         } else {
-          router.push("/dashboard");
+          if (signUpResult.data?.session) {
+            router.push("/dashboard");
+          } else {
+            setShowSuccessModal(true);
+          }
         }
       } else {
         const { error: signInError } = await signIn(email, password);

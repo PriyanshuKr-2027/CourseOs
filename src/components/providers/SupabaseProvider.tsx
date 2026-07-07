@@ -3,10 +3,10 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { getProfile as getMockProfile, saveProfile as saveMockProfile, getPlanProgress as getMockProgress, savePlanProgress as saveMockProgress, getDayManualDone as getMockManualDone, saveDayManualDone as saveMockManualDone, getDayNotes as getMockNotes, saveDayNotes as saveMockNotes, getStreakInfo as getMockStreak, saveStreakInfo as saveMockStreak, getCurriculumDays as getMockDays } from "@/lib/store";
+import { getProfile as getMockProfile, saveProfile as saveMockProfile, getPlanProgress as getMockProgress, savePlanProgress as saveMockProgress, getDayManualDone as getMockManualDone, saveDayManualDone as saveMockManualDone, getDayNotes as getMockNotes, saveDayNotes as saveMockNotes, getStreakInfo as getMockStreak, saveStreakInfo as saveMockStreak, getCurriculumDays as getMockDays, saveCurriculumDays as saveMockDays } from "@/lib/store";
 import topicsData from "@/data/risingbrain_data.json";
 import { Profile, Day, Problem } from "@/types";
-import { SupabaseClient, User, AuthError } from "@supabase/supabase-js";
+import { SupabaseClient, User, AuthError, Session } from "@supabase/supabase-js";
 
 interface JSONProblem {
   id: string;
@@ -113,7 +113,7 @@ interface SupabaseContextType {
   loading: boolean;
   isMockMode: boolean;
   signIn: (email: string, password: string) => Promise<{ error: AuthError | Error | null }>;
-  signUp: (email: string, password: string, name: string) => Promise<{ error: AuthError | Error | null }>;
+  signUp: (email: string, password: string, name: string) => Promise<{ data: { user: User | null; session: Session | null } | null; error: AuthError | Error | null }>;
   signOut: () => Promise<void>;
   toggleProblem: (dayId: number, problemIndex: number) => Promise<void>;
   toggleSheetProblem: (problemId: string) => Promise<void>;
@@ -121,8 +121,12 @@ interface SupabaseContextType {
   saveDayNotes: (dayId: number, text: string) => Promise<void>;
   updateProfile: (profileData: Partial<Profile>) => Promise<void>;
   refreshProgress: () => Promise<void>;
-  getChatHistory: (filters: { dayId?: number; problemId?: string }) => Promise<{ role: "user" | "assistant"; text: string; sessionId?: string; createdAt?: string }[]>;
+  getChatHistory: (filters: { dayId?: number; problemId?: string; userId?: string }) => Promise<{ role: "user" | "assistant"; text: string; sessionId?: string; createdAt?: string; dayId?: number; problemId?: string }[]>;
   saveChatMessage: (message: { dayId?: number; problemId?: string; role: "user" | "assistant"; text: string; sessionId?: string }) => Promise<void>;
+  updateDay: (dayId: number, topic: string, pattern: string, youtubeId: string) => Promise<void>;
+  updateDaysBulk: (updates: { id: number; youtubeId: string }[]) => Promise<void>;
+  createPortalUser: (email: string, password: string, name: string) => Promise<void>;
+  deletePortalUser: (userId: string) => Promise<void>;
 }
 
 const SupabaseContext = createContext<SupabaseContextType | undefined>(undefined);
@@ -408,7 +412,13 @@ export function SupabaseProvider({ children }: { children: React.ReactNode }) {
       setProfile(mockP);
       setUser({ email } as User);
       router.push("/dashboard");
-      return { error: null };
+      return { 
+        data: { 
+          user: { email } as User, 
+          session: { access_token: "mock-token", refresh_token: "mock-token", expires_in: 3600, token_type: "bearer", user: { email } as User } as Session 
+        }, 
+        error: null 
+      };
     }
     return await supabase!.auth.signUp({
       email,
@@ -782,9 +792,15 @@ export function SupabaseProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const getChatHistory = async (filters: { dayId?: number; problemId?: string }) => {
+  const getChatHistory = async (filters: { dayId?: number; problemId?: string; userId?: string }) => {
     if (isMockMode) {
       if (typeof window === "undefined") return [];
+      if (filters.userId && filters.userId !== "john_doe") {
+        return [
+          { role: "user", text: "How do I solve today's sliding window problem?", createdAt: new Date().toISOString() },
+          { role: "assistant", text: "You can use two pointers to maintain the window.", createdAt: new Date().toISOString() }
+        ];
+      }
       const key = filters.dayId 
         ? `dsa_chat_day_${filters.dayId}` 
         : `dsa_chat_problem_${filters.problemId}`;
@@ -800,10 +816,12 @@ export function SupabaseProvider({ children }: { children: React.ReactNode }) {
     if (!user) return [];
 
     try {
+      const targetUserId = (profile.role === "admin" && filters.userId) ? filters.userId : user.id;
+
       let query = supabase!
         .from("chat_messages")
-        .select("role, message_text, session_id, created_at")
-        .eq("user_id", user.id)
+        .select("role, message_text, session_id, created_at, day_id, problem_id")
+        .eq("user_id", targetUserId)
         .order("created_at", { ascending: true });
 
       if (filters.dayId !== undefined) {
@@ -814,11 +832,13 @@ export function SupabaseProvider({ children }: { children: React.ReactNode }) {
 
       const { data, error } = await query;
       if (error) throw error;
-      return (data as { role: string; message_text: string; session_id: string; created_at: string }[]).map((m) => ({
+      return (data as { role: string; message_text: string; session_id: string; created_at: string; day_id: any; problem_id: any }[]).map((m) => ({
         role: m.role as "user" | "assistant",
         text: m.message_text,
         sessionId: m.session_id,
-        createdAt: m.created_at
+        createdAt: m.created_at,
+        dayId: m.day_id,
+        problemId: m.problem_id
       }));
     } catch (err) {
       console.error("Error fetching chat history:", err);
@@ -858,6 +878,103 @@ export function SupabaseProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const updateDay = async (dayId: number, topic: string, pattern: string, youtubeId: string) => {
+    if (isMockMode) {
+      const currentDays = getMockDays();
+      const updated = currentDays.map((d: any) =>
+        d.id === dayId ? { ...d, topic, pattern, youtubeId } : d
+      );
+      saveMockDays(updated);
+      setDays(updated);
+      return;
+    }
+    if (!user) return;
+    try {
+      const { error } = await supabase!
+        .from("days")
+        .update({
+          topic,
+          pattern,
+          youtube_id: youtubeId || null
+        })
+        .eq("id", dayId);
+      if (error) throw error;
+      setDays((prev) =>
+        prev.map((d) => (d.id === dayId ? { ...d, topic, pattern, youtubeId } : d))
+      );
+    } catch (err) {
+      console.error("Error updating day details:", err);
+      throw err;
+    }
+  };
+
+  const updateDaysBulk = async (updates: { id: number; youtubeId: string }[]) => {
+    if (isMockMode) {
+      const currentDays = getMockDays();
+      const updated = currentDays.map((d: any) => {
+        const match = updates.find((u) => u.id === d.id);
+        return match ? { ...d, youtubeId: match.youtubeId } : d;
+      });
+      saveMockDays(updated);
+      setDays(updated);
+      return;
+    }
+    if (!user) return;
+    try {
+      const promises = updates.map((u) =>
+        supabase!
+          .from("days")
+          .update({ youtube_id: u.youtubeId || null })
+          .eq("id", u.id)
+      );
+      const results = await Promise.all(promises);
+      const errors = results.filter((r) => r.error);
+      if (errors.length > 0) throw new Error("Some bulk day updates failed");
+      
+      setDays((prev) =>
+        prev.map((d) => {
+          const match = updates.find((u) => u.id === d.id);
+          return match ? { ...d, youtubeId: match.youtubeId } : d;
+        })
+      );
+    } catch (err) {
+      console.error("Error updating bulk days details:", err);
+      throw err;
+    }
+  };
+
+  const createPortalUser = async (email: string, password: string, name: string) => {
+    if (isMockMode) {
+      console.warn("User creation in mock mode is simulated.");
+      return;
+    }
+    const res = await fetch("/api/admin/users", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ email, password, name }),
+    });
+    if (!res.ok) {
+      const errorData = await res.json();
+      throw new Error(errorData.error || "Failed to create user");
+    }
+  };
+
+  const deletePortalUser = async (userId: string) => {
+    if (isMockMode) {
+      console.warn("User deletion in mock mode is simulated.");
+      return;
+    }
+    const res = await fetch(`/api/admin/users?userId=${userId}`, {
+      method: "DELETE",
+    });
+    if (!res.ok) {
+      const errorData = await res.json();
+      throw new Error(errorData.error || "Failed to delete user");
+    }
+  };
+
   return (
     <SupabaseContext.Provider
       value={{
@@ -883,6 +1000,10 @@ export function SupabaseProvider({ children }: { children: React.ReactNode }) {
         refreshProgress,
         getChatHistory,
         saveChatMessage,
+        updateDay,
+        updateDaysBulk,
+        createPortalUser,
+        deletePortalUser,
       }}
     >
       {children}
